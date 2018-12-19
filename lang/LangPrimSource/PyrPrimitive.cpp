@@ -43,6 +43,7 @@
 #include "PyrArchiverT.h"
 #include "PyrDeepCopier.h"
 #include "PyrDeepFreezer.h"
+#include "PyrOssiaPrim.h"
 //#include "Wacom.h"
 #include "InitAlloc.h"
 #include "SC_LanguageConfig.hpp"
@@ -4266,6 +4267,7 @@ void initPrimitives()
 	initMathPrimitives();
 	initSignalPrimitives();
 	initArrayPrimitives();
+    ossia::supercollider::initialize();
 
 void initSymbolPrimitives();
 	initSymbolPrimitives();
