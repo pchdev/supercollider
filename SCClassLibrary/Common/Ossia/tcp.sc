@@ -1,13 +1,18 @@
 TcpConnection
 {
 	var m_ptr;
+	var m_read_callback;
 
 	*new { |ptr|
 		^this.newCopyArgs(ptr);
 	}
 
 	onDataReceived { |data|
+		m_read_callback.value(data);
+	}
 
+	setReadCallback { |cb|
+		m_read_callback = cb;
 	}
 
 	write { |data|
@@ -27,8 +32,8 @@ TcpClient
 	var m_connected_callback;
 	var m_connection;
 
-	*new { |hostAddr|
-		^this.newCopyArgs(0x0, hostAddr).tcpClientCtor();
+	*new {
+		^this.newCopyArgs(0x0).tcpClientCtor();
 	}
 
 	tcpClientCtor
@@ -36,11 +41,11 @@ TcpClient
 
 	}
 
-	connect { |hostAddr|
-		m_connection = prmConnect(hostAddr);
+	connectToHost { |hostAddr, port|
+		m_connection = this.prmConnect(hostAddr, port);
 	}
 
-	prmConnect { |hostAddr|
+	prmConnect { |hostAddr, port|
 		_TcpClientConnect
 		^this.primitiveFailed
 	}
@@ -50,12 +55,15 @@ TcpClient
 		^this.primitiveFailed
 	}
 
-	onConnected
-	{
+	onConnected { |connection|
+		m_connection = TcpConnection(connection);
+		"new_connection".postln;
 		m_connected_callback.value();
 	}
 
-
+	write { |data|
+		m_connection.write(data);
+	}
 }
 
 TcpServer
@@ -75,16 +83,14 @@ TcpServer
 		m_connections = [];
 	}
 
-	onNewConnection
-	{
-		var con = TcpConnection(this.prmGetNewConnection());
+	onNewConnection { |connection|
+		var con = TcpConnection(connection);
 		m_connections = m_connections.add(con);
 		m_nconnection_callback.value(con);
 	}
 
-	onDisconnection
-	{
-		var con = this.prmGetDisconnection();
+	onDisconnection { |connection|
+
 	}
 
 	prmInstantiateRun

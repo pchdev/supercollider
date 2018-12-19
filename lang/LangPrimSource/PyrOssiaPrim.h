@@ -17,7 +17,19 @@
 #include <avahi-common/timeval.h>
 #endif
 
+#include "PyrSymbolTable.h"
+#include "PyrSched.h"
+#include "PyrPrimitive.h"
+#include "PyrKernel.h"
+#include "PyrSymbol.h"
+#include "PyrInterpreter.h"
+#include "GC.h"
+#include "SC_LanguageClient.h"
+
 using boost::asio::ip::tcp;
+using pyrslot = PyrSlot;
+using pyrobject = PyrObject;
+using vmglobals = VMGlobals;
 
 #define TCP_BUFSIZE 32768
 
@@ -25,9 +37,8 @@ namespace ossia
 {
 namespace supercollider
 {
+
 void initialize();
-}
-}
 
 class tcp_connection : public boost::enable_shared_from_this<tcp_connection>
 {
@@ -52,7 +63,7 @@ class tcp_client : public boost::enable_shared_from_this<tcp_client>
 {
     public:
 
-    tcp_client(boost::asio::io_context& ctx );
+    tcp_client(boost::asio::io_context& ctx, pyrslot* s);
     ~tcp_client();
 
     void connect(const std::string& host_addr, uint16_t host_port );
@@ -61,18 +72,35 @@ class tcp_client : public boost::enable_shared_from_this<tcp_client>
     private:
     void connected_handler(tcp_connection::pointer con, const boost::system::error_code& err );
     tcp_connection::pointer m_connection;
+    pyrobject* m_object;
 };
 
 class tcp_server
 {
     public:
-    tcp_server  ( boost::asio::io_context& ctx, uint16_t port );
+    tcp_server  ( boost::asio::io_context& ctx, uint16_t port, pyrslot* s );
     ~tcp_server ( );
+
+    static tcp_server* create( boost::asio::io_context& ctx, uint16_t port, pyrslot* s );
 
     private:
     void start_accept ( );
     void accept_handler(tcp_connection::pointer connection, const boost::system::error_code& err);
     tcp::acceptor m_acceptor;
-    std::vector<tcp_connection::pointer> m_connections;
+    std::vector<tcp_connection::pointer> m_connections;    
+    pyrobject* m_object;
 
 };
+
+tcp_connection::pointer get_connection(pyrslot* s);
+tcp_client* get_client(pyrslot* s);
+tcp_server* get_server(pyrslot* s);
+
+template<typename T> T* get_object(pyrslot* s, uint16_t v_index);
+
+float read_float(pyrslot* s);
+int read_int(pyrslot* s);
+std::string read_string(pyrslot* s);
+
+}
+}
