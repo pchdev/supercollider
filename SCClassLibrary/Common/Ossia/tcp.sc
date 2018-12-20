@@ -1,22 +1,22 @@
 TcpConnection
 {
 	var m_ptr;
-	var m_read_callback;
+	var m_rcallback;
 
 	*new { |ptr|
 		^this.newCopyArgs(ptr);
 	}
 
 	onDataReceived { |data|
-		m_read_callback.value(data);
+		m_rcallback.value(data);
 	}
 
 	setReadCallback { |cb|
-		m_read_callback = cb;
+		m_rcallback = cb;
 	}
 
 	write { |data|
-		prmWrite(data);
+		this.prmWrite(data);
 	}
 
 	prmWrite { |data|
@@ -34,12 +34,13 @@ TcpClient
 {
 	var m_ptr;
 	var m_host_addr;
-	var m_connected_callback;
+	var m_ccallback;
+	var m_rcallback;
 	var m_connection;
 	classvar g_instances;
 
-	*new {
-		^this.newCopyArgs(0x0).tcpClientCtor().stackNew();
+	*new { |cfunc, rfunc|
+		^this.newCopyArgs(0x0, "127.0.0.1", cfunc, rfunc).tcpClientCtor().stackNew();
 	}
 
 	*initClass {
@@ -53,8 +54,7 @@ TcpClient
 		g_instances = g_instances.add(this);
 	}
 
-	tcpClientCtor
-	{
+	tcpClientCtor {
 		this.prmInstantiate();
 	}
 
@@ -63,7 +63,7 @@ TcpClient
 		^this.primitiveFailed
 	}
 
-	connectToHost { |hostAddr, port|
+	connect { |hostAddr, port|
 		m_connection = this.prmConnect(hostAddr, port);
 	}
 
@@ -79,8 +79,7 @@ TcpClient
 
 	onConnected { |connection|
 		m_connection = TcpConnection(connection);
-		"CONNECTED".postln;
-		//m_connected_callback.value();
+		m_ccallback.value();
 	}
 
 	write { |data|
@@ -102,12 +101,13 @@ TcpServer
 {
 	var m_ptr;
 	var m_port;
-	var m_connections;
 	var m_nconnection_callback;
+	var m_dconnection_callback;
+	var m_connections;
 	classvar g_instances;
 
-	*new { |port|
-		^this.newCopyArgs(0x0, port).tcpServerCtor().stackNew();
+	*new { |port, cfunc, dfunc|
+		^this.newCopyArgs(0x0, port, cfunc, dfunc).tcpServerCtor().stackNew();
 	}
 
 	*initClass {
@@ -129,7 +129,6 @@ TcpServer
 
 	onNewConnection { |connection|
 		var con = TcpConnection(connection);
-		postln("NEW CONNECTION");
 		m_connections = m_connections.add(con);
 		m_nconnection_callback.value(con);
 	}
@@ -138,20 +137,12 @@ TcpServer
 
 	}
 
+	getConnection { |index|
+		^m_connections[index];
+	}
+
 	prmInstantiateRun { |port|
 		_TcpServerInstantiateRun
-		^this.primitiveFailed
-	}
-
-	prmGetNewConnection
-	{
-		_TcpServerGetNewConnection
-		^this.primitiveFailed
-	}
-
-	prmGetDisconnection
-	{
-		_TcpServerGetDisconnection
 		^this.primitiveFailed
 	}
 

@@ -14,19 +14,17 @@ using pointer = boost::shared_ptr<tcp_connection>;
 
 extern boost::asio::io_context ioService;
 
-inline float ossia::supercollider::read_float(pyrslot* s)
+template<> inline float ossia::supercollider::read(pyrslot* s)
 {
-    float f; slotFloatVal(s, &f);
-    return f;
+    float f; slotFloatVal(s, &f); return f;
 }
 
-inline int ossia::supercollider::read_int(pyrslot* s)
+template<> inline int ossia::supercollider::read(pyrslot* s)
 {
-    int i; slotIntVal(s, &i);
-    return i;
+    int i; slotIntVal(s, &i); return i;
 }
 
-inline std::string ossia::supercollider::read_string(pyrslot* s)
+template<> inline std::string ossia::supercollider::read(pyrslot* s)
 {
     char v[ STRMAXLE ]; slotStrVal(s, v, STRMAXLE);
     return static_cast<std::string>(v);
@@ -44,6 +42,12 @@ template<typename T> inline T* ossia::supercollider::get_object(pyrslot* s, uint
     return static_cast<T*>(slotRawPtr(&slotRawObject(s)->slots[v_index]));
 }
 
+inline void ossia::supercollider::free(vmglobals* g, pyrslot* s)
+{
+    g->gc->Free(slotRawObject(s));
+    SetNil(s);
+}
+
 //----------------------------------------------------------------------------------- CONNECTIONS
 
 pointer tcp_connection::create(boost::asio::io_context& io_context)
@@ -51,10 +55,8 @@ pointer tcp_connection::create(boost::asio::io_context& io_context)
     return pointer( new tcp_connection(io_context) );
 }
 
-tcp_connection::tcp_connection( boost::asio::io_context& ctx ) : m_socket(ctx)
-{
-
-}
+tcp_connection::tcp_connection( boost::asio::io_context& ctx ) :
+    m_socket(ctx) { }
 
 void tcp_connection::bind(pyrobject* object)
 {
@@ -71,12 +73,12 @@ void tcp_connection::listen()
 }
 
 void tcp_connection::read_handler(const boost::system::error_code& err, size_t nbytes)
-{
-    auto g = gMainVMGlobals;
+{    
     gLangMutex.lock();
 
     if ( !compiledOK ) // !TODO
     {
+        auto g = gMainVMGlobals;
         g->canCallOS = true;
 
         ++g->sp; SetObject(g->sp, m_object);
@@ -227,36 +229,28 @@ void tcp_client::write( const std::string& data)
 
 int pyr_tcp_server_instantiate_run(VMGlobals* g, int n)
 {
-    auto server = tcp_server::create(read_int(g->sp), g->sp-1);
+    tcp_server::create(read<int>(g->sp), g->sp-1);
     return errNone;
 }
 
 int pyr_tcp_server_free(VMGlobals* g, int n)
 {
-    auto server = get_object<tcp_server>(g->sp, 0);
-    delete server;
-
-    auto device_obj = slotRawObject(g->sp);
-    g->gc->Free(device_obj);
-    SetNil(g->sp);
+    delete get_object<tcp_server>(g->sp, 0);
+    free(g, g->sp);
 
     return errNone;
 }
 
 int pyr_tcp_client_instantiate(VMGlobals* g, int n)
 {
-    auto client = tcp_client::create(g->sp);
+    tcp_client::create(g->sp);
     return errNone;
 }
 
 int pyr_tcp_client_free(VMGlobals* g, int n)
 {
-    auto client = get_object<tcp_client>(g->sp, 0);
-    delete client;
-
-    auto device_obj = slotRawObject(g->sp);
-    g->gc->Free(device_obj);
-    SetNil(g->sp);
+    delete get_object<tcp_client>(g->sp, 0);
+    free(g, g->sp);
 
     return errNone;
 }
@@ -264,7 +258,8 @@ int pyr_tcp_client_free(VMGlobals* g, int n)
 int pyr_tcp_client_connect(VMGlobals* g, int n)
 {
     auto client = get_object<tcp_client>(g->sp-2, 0);
-    client->connect(read_string(g->sp-1), read_int(g->sp));
+    client->connect(read<std::string>(g->sp-1), read<int>(g->sp));
+
     return errNone;
 }
 
@@ -284,7 +279,7 @@ int pyr_tcp_con_bind(VMGlobals* g, int n)
 int pyr_tcp_con_write(VMGlobals* g, int n)
 {
     auto connection = get_object<tcp_connection>(g->sp-1, 0);
-    connection->write(read_string(g->sp));
+    connection->write(read<std::string>(g->sp));
 
     return errNone;
 }

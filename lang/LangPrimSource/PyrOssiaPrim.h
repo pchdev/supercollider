@@ -99,16 +99,11 @@ class tcp_server
 
 };
 
-tcp_connection::pointer get_connection(pyrslot* s);
-tcp_client* get_client(pyrslot* s);
-tcp_server* get_server(pyrslot* s);
-
 template<typename T> void register_object(pyrslot* s, T* object, uint16_t v_index);
 template<typename T> T* get_object(pyrslot* s, uint16_t v_index);
+template<typename T> T read(pyrslot* s);
 
-float read_float(pyrslot* s);
-int read_int(pyrslot* s);
-std::string read_string(pyrslot* s);
+void free(vmglobals *g, pyrslot* s);
 
 }
 }
