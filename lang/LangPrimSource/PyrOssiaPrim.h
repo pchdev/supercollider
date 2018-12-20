@@ -99,6 +99,7 @@ class tcp_server
 
 };
 
+template<typename T> void sendback_object(pyrobject* object, T* pointer, const char* sym);
 template<typename T> void register_object(pyrslot* s, T* object, uint16_t v_index);
 template<typename T> T* get_object(pyrslot* s, uint16_t v_index);
 template<typename T> T read(pyrslot* s);

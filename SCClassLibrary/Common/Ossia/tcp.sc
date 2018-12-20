@@ -159,10 +159,10 @@ TcpServer
 
 WebSocketConnection
 {
-	var m_tcp_connection;
+	var m_tcpcon;
 
-	*new { |tcpConnection|
-		^this.newCopyArgs(tcpConnection)
+	*new { |tcpcon|
+		^this.newCopyArgs(tcpcon)
 	}
 
 	onTextMessageReceived
