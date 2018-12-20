@@ -110,9 +110,5 @@ float read_float(pyrslot* s);
 int read_int(pyrslot* s);
 std::string read_string(pyrslot* s);
 
-void run_asio();
-void run_asio_thread();
-void stop_asio_thread();
-
 }
 }

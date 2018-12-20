@@ -164,11 +164,6 @@ TcpServer
 		_TcpServerFree
 		^this.primitiveFailed
 	}
-
-	prmAsioStop {
-		_ASIOquit
-		^this.primitiveFailed
-	}
 }
 
 WebSocketConnection

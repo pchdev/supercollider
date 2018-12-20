@@ -12,26 +12,7 @@ using boost::asio::ip::tcp;
 using namespace ossia::supercollider;
 using pointer = boost::shared_ptr<tcp_connection>;
 
-boost::asio::io_context g_ioctx;
-std::thread g_iothread;
-
-void ossia::supercollider::run_asio()
-{
-    boost::asio::io_service::work work(g_ioctx);
-    g_ioctx.run();
-}
-
-void ossia::supercollider::run_asio_thread()
-{
-    std::thread athread(&run_asio);
-    g_iothread = std::move(athread);
-}
-
-void ossia::supercollider::stop_asio_thread()
-{
-    g_ioctx.stop();
-    g_iothread.join();
-}
+extern boost::asio::io_context ioService;
 
 inline float ossia::supercollider::read_float(pyrslot* s)
 {
@@ -128,7 +109,7 @@ void tcp_connection::write_handler(const boost::system::error_code& err, size_t 
 
 tcp_server* tcp_server::create(uint16_t port, pyrslot* s)
 {
-    return new tcp_server(g_ioctx, port, s);
+    return new tcp_server(ioService, port, s);
 }
 
 tcp_server::tcp_server(boost::asio::io_context& ctx, uint16_t port, pyrslot *s) :
@@ -186,7 +167,7 @@ void tcp_server::accept_handler( tcp_connection::pointer connection,
 
 tcp_client* tcp_client::create(pyrslot* s)
 {
-    return new tcp_client(g_ioctx, s);
+    return new tcp_client(ioService, s);
 }
 
 tcp_client::tcp_client(boost::asio::io_context& ctx, pyrslot *s) : m_ctx(ctx)
@@ -315,7 +296,6 @@ int pyr_tcp_con_write_ws(VMGlobals* g, int n)
 
 int pyr_asio_quit(VMGlobals* g, int n)
 {
-    stop_asio_thread();
     return errNone;
 }
 
@@ -337,5 +317,5 @@ void ossia::supercollider::initialize()
     definePrimitive( base ,index++, "_TcpConnectionWriteWebSocket", pyr_tcp_con_write_ws, 3, 0);
 
     definePrimitive( base, index++, "_ASIOquit", pyr_asio_quit, 1, 0);
-    run_asio_thread();
+    //run_asio_thread();
 }
