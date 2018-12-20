@@ -31,9 +31,22 @@ TcpClient
 	var m_host_addr;
 	var m_connected_callback;
 	var m_connection;
+	classvar g_instances;
 
 	*new {
-		^this.newCopyArgs(0x0).tcpClientCtor();
+		^this.newCopyArgs(0x0).tcpClientCtor().stackNew();
+	}
+
+	*initClass {
+		g_instances = [];
+		ShutDown.add({
+			postln("TcpClient cleanup");
+			g_instances.do(_.free());
+		})
+	}
+
+	stackNew {
+		g_instances = g_instances.add(this);
 	}
 
 	tcpClientCtor
@@ -70,6 +83,16 @@ TcpClient
 	write { |data|
 		m_connection.write(data);
 	}
+
+	free {
+		g_instances.remove(this);
+		this.prmFree();
+	}
+
+	prmFree {
+		_TcpClientFree
+		^this.primitiveFailed
+	}
 }
 
 TcpServer
@@ -78,9 +101,22 @@ TcpServer
 	var m_port;
 	var m_connections;
 	var m_nconnection_callback;
+	classvar g_instances;
 
 	*new { |port|
-		^this.newCopyArgs(0x0, port).tcpServerCtor();
+		^this.newCopyArgs(0x0, port).tcpServerCtor().stackNew();
+	}
+
+	*initClass {
+		g_instances = [];
+		ShutDown.add({
+			postln("TcpServer cleanup");
+			g_instances.do(_.free());
+		})
+	}
+
+	stackNew {
+		g_instances = g_instances.add(this);
 	}
 
 	tcpServerCtor
@@ -114,6 +150,16 @@ TcpServer
 	prmGetDisconnection
 	{
 		_TcpServerGetDisconnection
+		^this.primitiveFailed
+	}
+
+	free {
+		g_instances.remove(this);
+		this.prmFree();
+	}
+
+	prmFree {
+		_TcpServerFree
 		^this.primitiveFailed
 	}
 }

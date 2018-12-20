@@ -11,6 +11,8 @@ using boost::asio::ip::tcp;
 using namespace ossia::supercollider;
 using pointer = boost::shared_ptr<tcp_connection>;
 
+extern boost::asio::io_service ioService;
+
 inline float ossia::supercollider::read_float(pyrslot* s)
 {
     float f; slotFloatVal(s, &f);
@@ -46,6 +48,11 @@ tcp_connection::tcp_connection( boost::asio::io_context& ctx ) : m_socket(ctx)
 
 }
 
+void tcp_connection::bind(pyrobject* object)
+{
+    m_object = object;
+}
+
 void tcp_connection::listen()
 {
     boost::asio::async_read(m_socket, boost::asio::buffer(m_netbuffer),
@@ -57,6 +64,21 @@ void tcp_connection::listen()
 
 void tcp_connection::read_handler(const boost::system::error_code& err, size_t nbytes)
 {
+    auto g = gMainVMGlobals;
+    gLangMutex.lock();
+
+    if ( !compiledOK ) // !TODO
+    {
+        g->canCallOS = true;
+
+        ++g->sp; SetObject(g->sp, m_object);
+        // TODO: send data back
+        runInterpreter(g, getsym("onDataReceived"), 1);
+
+        g->canCallOS = false;
+    }
+
+    gLangMutex.unlock();
     listen();
 }
 
@@ -79,8 +101,7 @@ void tcp_connection::write_handler(const boost::system::error_code& err, size_t 
 
 tcp_server* tcp_server::create(uint16_t port, pyrslot* s)
 {
-    auto ctx = new boost::asio::io_context;
-    return new tcp_server(*ctx, port, s);
+    return new tcp_server(ioService, port, s);
 }
 
 tcp_server::tcp_server(boost::asio::io_context& ctx, uint16_t port, pyrslot *s) :
@@ -90,10 +111,14 @@ tcp_server::tcp_server(boost::asio::io_context& ctx, uint16_t port, pyrslot *s) 
     m_object = slotRawObject(s);
 }
 
+tcp_server::~tcp_server()
+{
+
+}
+
 void tcp_server::run()
 {
     start_accept();
-    m_iothread = boost::thread(boost::bind(&boost::asio::io_context::run, &m_ctx));
 }
 
 void tcp_server::start_accept()
@@ -111,7 +136,6 @@ void tcp_server::accept_handler( tcp_connection::pointer connection,
     std::cout << "server: new_connection" << std::endl;
 
     if ( !err ) m_connections.push_back( connection );
-    start_accept();        
 
     auto g = gMainVMGlobals;
     gLangMutex.lock();
@@ -128,20 +152,25 @@ void tcp_server::accept_handler( tcp_connection::pointer connection,
     }
 
     gLangMutex.unlock();
+    start_accept();
 }
 
 //----------------------------------------------------------------------------------- CLIENT
 
 tcp_client* tcp_client::create(pyrslot* s)
 {
-    auto ctx = new boost::asio::io_context;
-    return new tcp_client(*ctx, s);
+    return new tcp_client(ioService, s);
 }
 
 tcp_client::tcp_client(boost::asio::io_context& ctx, pyrslot *s) : m_ctx(ctx)
 {
     SetPtr(s, this);
     m_object = slotRawObject(s);
+}
+
+tcp_client::~tcp_client()
+{
+
 }
 
 void tcp_client::connect( std::string const& host_addr, uint16_t port )
@@ -155,28 +184,28 @@ void tcp_client::connect( std::string const& host_addr, uint16_t port )
     socket.async_connect(endpoint,
         boost::bind(&tcp_client::connected_handler, this,
         connection, boost::asio::placeholders::error));
-
-    m_iothread = boost::thread(boost::bind(&boost::asio::io_context::run, &m_ctx));
 }
 
 void tcp_client::connected_handler(tcp_connection::pointer con, const boost::system::error_code& err )
 {
+    std::cout << err.message();
+
     con->listen();
     m_connection = con;
 
     auto g = gMainVMGlobals;
     gLangMutex.lock();
 
-    if ( compiledOK )
-    {
-        g->canCallOS = true;
+//    if ( !compiledOK )
+//    {
+//        g->canCallOS = true;
 
-        ++g->sp; SetObject(g->sp, m_object);
-        ++g->sp; SetPtr(g->sp, con.get());
-        runInterpreter(g, getsym("onConnected"), 2);
+//        ++g->sp; SetObject(g->sp, m_object);
+//        ++g->sp; SetPtr(g->sp, con.get());
+//        runInterpreter(g, getsym("onConnected"), 2);
 
-        g->canCallOS = false;
-    }
+//        g->canCallOS = false;
+//    }
 
     gLangMutex.unlock();
 }
@@ -196,10 +225,30 @@ int pyr_tcp_server_instantiate_run(VMGlobals* g, int n)
     return errNone;
 }
 
+int pyr_tcp_server_free(VMGlobals* g, int n)
+{
+    auto server = get_object<tcp_server>(g->sp, 0);
+    delete server;
+
+    auto device_obj = slotRawObject(g->sp);
+    g->gc->Free(device_obj);
+    SetNil(g->sp);
+}
+
 int pyr_tcp_client_instantiate(VMGlobals* g, int n)
 {
     auto client = tcp_client::create(g->sp);
     return errNone;
+}
+
+int pyr_tcp_client_free(VMGlobals* g, int n)
+{
+    auto client = get_object<tcp_client>(g->sp, 0);
+    delete client;
+
+    auto device_obj = slotRawObject(g->sp);
+    g->gc->Free(device_obj);
+    SetNil(g->sp);
 }
 
 int pyr_tcp_client_connect(VMGlobals* g, int n)
@@ -210,6 +259,11 @@ int pyr_tcp_client_connect(VMGlobals* g, int n)
 }
 
 int pyr_tcp_client_disconnect(VMGlobals* g, int n)
+{
+    return errNone;
+}
+
+int pyr_tcp_con_bind(VMGlobals* g, int n)
 {
     return errNone;
 }
@@ -233,12 +287,14 @@ void ossia::supercollider::initialize()
     base = nextPrimitiveIndex();    
 
     definePrimitive( base, index++, "_TcpServerInstantiateRun", pyr_tcp_server_instantiate_run, 2, 0 );
+    definePrimitive( base, index++, "_TcpServerFree", pyr_tcp_server_free, 1, 0);
 
     definePrimitive( base, index++, "_TcpClientInstantiate", pyr_tcp_client_instantiate, 1, 0);
     definePrimitive( base, index++, "_TcpClientConnect", pyr_tcp_client_connect, 3, 0);
     definePrimitive( base, index++, "_TcpClientDisconnect", pyr_tcp_client_disconnect, 2, 0);
+    definePrimitive( base, index++, "_TcpClientFree", pyr_tcp_client_free, 1, 0);
 
+    definePrimitive( base, index++, "_TcpConnectionBind", pyr_tcp_con_bind, 2, 0);
     definePrimitive( base, index++, "_TcpConnectionWrite", pyr_tcp_con_write, 2, 0);
     definePrimitive( base ,index++, "_TcpConnectionWriteWebSocket", pyr_tcp_con_write_ws, 3, 0);
-
 }

@@ -50,6 +50,7 @@ class tcp_connection : public boost::enable_shared_from_this<tcp_connection>
     tcp_connection( boost::asio::io_context& ctx );
 
     tcp::socket& socket() { return m_socket; }
+    void bind(pyrobject* object);
     void write(const std::string& str);
     void listen();
 
@@ -57,6 +58,7 @@ class tcp_connection : public boost::enable_shared_from_this<tcp_connection>
     void read_handler(const boost::system::error_code& err, size_t nbytes);
     void write_handler(const boost::system::error_code& err, size_t nbytes);
     tcp::socket m_socket;
+    pyrobject* m_object;
     std::array<char, 128> m_netbuffer;
 };
 
