@@ -88,8 +88,6 @@ class tcp_server
     tcp_server  ( boost::asio::io_context& ctx, uint16_t port, pyrslot* s );
     ~tcp_server ( );
 
-    void run();
-
     private:
     void start_accept ( );
     void accept_handler(tcp_connection::pointer connection, const boost::system::error_code& err);
@@ -105,11 +103,16 @@ tcp_connection::pointer get_connection(pyrslot* s);
 tcp_client* get_client(pyrslot* s);
 tcp_server* get_server(pyrslot* s);
 
+template<typename T> void register_object(pyrslot* s, T* object, uint16_t v_index);
 template<typename T> T* get_object(pyrslot* s, uint16_t v_index);
 
 float read_float(pyrslot* s);
 int read_int(pyrslot* s);
 std::string read_string(pyrslot* s);
+
+void run_asio();
+void run_asio_thread();
+void stop_asio_thread();
 
 }
 }

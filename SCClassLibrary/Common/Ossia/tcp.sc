@@ -23,6 +23,11 @@ TcpConnection
 		_TcpConnectionWrite
 		^this.primitiveFailed
 	}
+
+	prmBind { |ptr|
+		_TcpConnectionBind
+		^this.primitiveFailed
+	}
 }
 
 TcpClient
@@ -40,7 +45,6 @@ TcpClient
 	*initClass {
 		g_instances = [];
 		ShutDown.add({
-			postln("TcpClient cleanup");
 			g_instances.do(_.free());
 		})
 	}
@@ -51,8 +55,7 @@ TcpClient
 
 	tcpClientCtor
 	{
-		m_ptr = this.prmInstantiate();
-		m_ptr.postln;
+		this.prmInstantiate();
 	}
 
 	prmInstantiate {
@@ -76,8 +79,8 @@ TcpClient
 
 	onConnected { |connection|
 		m_connection = TcpConnection(connection);
-		"new_connection".postln;
-		m_connected_callback.value();
+		"CONNECTED".postln;
+		//m_connected_callback.value();
 	}
 
 	write { |data|
@@ -110,7 +113,7 @@ TcpServer
 	*initClass {
 		g_instances = [];
 		ShutDown.add({
-			postln("TcpServer cleanup");
+			postln("TCP-cleanup");
 			g_instances.do(_.free());
 		})
 	}
@@ -119,14 +122,14 @@ TcpServer
 		g_instances = g_instances.add(this);
 	}
 
-	tcpServerCtor
-	{
-		m_ptr = this.prmInstantiateRun();
+	tcpServerCtor {
 		m_connections = [];
+		this.prmInstantiateRun(m_port);
 	}
 
 	onNewConnection { |connection|
 		var con = TcpConnection(connection);
+		postln("NEW CONNECTION");
 		m_connections = m_connections.add(con);
 		m_nconnection_callback.value(con);
 	}
@@ -135,8 +138,7 @@ TcpServer
 
 	}
 
-	prmInstantiateRun
-	{
+	prmInstantiateRun { |port|
 		_TcpServerInstantiateRun
 		^this.primitiveFailed
 	}
@@ -160,6 +162,11 @@ TcpServer
 
 	prmFree {
 		_TcpServerFree
+		^this.primitiveFailed
+	}
+
+	prmAsioStop {
+		_ASIOquit
 		^this.primitiveFailed
 	}
 }
