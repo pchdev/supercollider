@@ -38,7 +38,13 @@ TcpClient
 
 	tcpClientCtor
 	{
+		m_ptr = this.prmInstantiate();
+		m_ptr.postln;
+	}
 
+	prmInstantiate {
+		_TcpClientInstantiate
+		^this.primitiveFailed
 	}
 
 	connectToHost { |hostAddr, port|

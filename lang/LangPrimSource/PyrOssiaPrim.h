@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/thread.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/enable_shared_from_this.hpp>
@@ -63,6 +64,7 @@ class tcp_client : public boost::enable_shared_from_this<tcp_client>
 {
     public:
 
+    static tcp_client* create(pyrslot* s);
     tcp_client(boost::asio::io_context& ctx, pyrslot* s);
     ~tcp_client();
 
@@ -72,20 +74,25 @@ class tcp_client : public boost::enable_shared_from_this<tcp_client>
     private:
     void connected_handler(tcp_connection::pointer con, const boost::system::error_code& err );
     tcp_connection::pointer m_connection;
+    boost::asio::io_context& m_ctx;
+    boost::thread m_iothread;
     pyrobject* m_object;
 };
 
 class tcp_server
 {
     public:
+    static tcp_server* create(uint16_t port, pyrslot* s );
     tcp_server  ( boost::asio::io_context& ctx, uint16_t port, pyrslot* s );
     ~tcp_server ( );
 
-    static tcp_server* create( boost::asio::io_context& ctx, uint16_t port, pyrslot* s );
+    void run();
 
     private:
     void start_accept ( );
     void accept_handler(tcp_connection::pointer connection, const boost::system::error_code& err);
+    boost::asio::io_context& m_ctx;
+    boost::thread m_iothread;
     tcp::acceptor m_acceptor;
     std::vector<tcp_connection::pointer> m_connections;    
     pyrobject* m_object;
