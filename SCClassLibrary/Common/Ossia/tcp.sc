@@ -2,9 +2,23 @@ TcpConnection
 {
 	var m_ptr;
 	var m_rcallback;
+	var m_remote_addr, m_remote_port;
+	var m_local_addr, m_local_port;
+
+	// when new is called
+	// tcp_connection (cpp) will store a pointer of this (sc) object
+	// in order to make the appropriate callbacks when data is received
+	// (prmBind method)
 
 	*new { |ptr|
-		^this.newCopyArgs(ptr);
+		^this.newCopyArgs(ptr).tcpConnectionCtor()
+	}
+
+	tcpConnectionCtor
+	{
+		this.prmBind();
+		m_remote_addr = this.prmGetRemoteAddr();
+		m_remote_port = this.prmGetRemotePort();
 	}
 
 	onDataReceived { |data|
@@ -24,8 +38,26 @@ TcpConnection
 		^this.primitiveFailed
 	}
 
-	prmBind { |ptr|
+	prmBind {
 		_TcpConnectionBind
+		^this.primitiveFailed
+	}
+
+	remoteAddress {
+		^m_remote_addr;
+	}
+
+	remotePort {
+		^m_remote_port;
+	}
+
+	prmGetRemoteAddr {
+		_TcpConnectionGetRemoteAddress
+		^this.primitiveFailed
+	}
+
+	prmGetRemotePort {
+		_TcpConnectionGetRemotePort
 		^this.primitiveFailed
 	}
 }
@@ -40,7 +72,12 @@ TcpClient
 	classvar g_instances;
 
 	*new { |cfunc, rfunc|
-		^this.newCopyArgs(0x0, "127.0.0.1", cfunc, rfunc).tcpClientCtor().stackNew();
+		^this.newCopyArgs(0x0, "127.0.0.1", cfunc, rfunc)
+		.tcpClientCtor().stackNew();
+	}
+
+	*newConnect { |cfunc, rfunc|
+
 	}
 
 	*initClass {
@@ -64,7 +101,7 @@ TcpClient
 	}
 
 	connect { |hostAddr, port|
-		m_connection = this.prmConnect(hostAddr, port);
+		this.prmConnect(hostAddr, port);
 	}
 
 	prmConnect { |hostAddr, port|
@@ -79,6 +116,7 @@ TcpClient
 
 	onConnected { |connection|
 		m_connection = TcpConnection(connection);
+		m_connection.setReadCallback(m_rcallback);
 		m_ccallback.value();
 	}
 
@@ -137,8 +175,12 @@ TcpServer
 
 	}
 
-	getConnection { |index|
+	at { |index|
 		^m_connections[index];
+	}
+
+	writeAll { |data|
+		m_connections.do(_.write(data));
 	}
 
 	prmInstantiateRun { |port|
@@ -191,10 +233,13 @@ WebSocketClient
 {
 	var m_host_addr;
 	var m_tcp_client;
-	var m_tcp_connection;
 
 	*new { |hostAddr|
-		^this.newCopyArgs(hostAddr);
+		^this.newCopyArgs(hostAddr).wsClientCtor();
+	}
+
+	wsClientCtor {
+		m_tcp_client = TcpClient();
 	}
 
 	connect { |hostAddr|

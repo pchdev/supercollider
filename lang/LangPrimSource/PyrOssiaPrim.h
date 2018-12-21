@@ -54,6 +54,9 @@ class tcp_connection : public boost::enable_shared_from_this<tcp_connection>
     void write(const std::string& str);
     void listen();
 
+    std::string remote_address() const;
+    uint16_t remote_port() const;
+
     private:
     void read_handler(const boost::system::error_code& err, size_t nbytes);
     void write_handler(const boost::system::error_code& err, size_t nbytes);
@@ -71,7 +74,6 @@ class tcp_client : public boost::enable_shared_from_this<tcp_client>
     ~tcp_client();
 
     void connect(const std::string& host_addr, uint16_t host_port );
-    void write(const std::string& message);
 
     private:
     void connected_handler(tcp_connection::pointer con, const boost::system::error_code& err );
@@ -94,7 +96,7 @@ class tcp_server
     boost::asio::io_context& m_ctx;
     boost::thread m_iothread;
     tcp::acceptor m_acceptor;
-    std::vector<tcp_connection::pointer> m_connections;    
+    std::vector<tcp_connection::pointer> m_connections;
     pyrobject* m_object;
 
 };
@@ -103,6 +105,7 @@ template<typename T> void sendback_object(pyrobject* object, T* pointer, const c
 template<typename T> void register_object(pyrslot* s, T* object, uint16_t v_index);
 template<typename T> T* get_object(pyrslot* s, uint16_t v_index);
 template<typename T> T read(pyrslot* s);
+template<typename T> void write(pyrslot* s, T);
 
 void free(vmglobals *g, pyrslot* s);
 

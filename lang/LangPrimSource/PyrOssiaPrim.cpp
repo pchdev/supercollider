@@ -11,8 +11,8 @@ extern bool compiledOK;
 using boost::asio::ip::tcp;
 using namespace ossia::supercollider;
 using pointer = boost::shared_ptr<tcp_connection>;
-
 extern boost::asio::io_context ioService;
+#define errpost_return(err) std::cout << err.message(); return;
 
 template<> inline float ossia::supercollider::read(pyrslot* s)
 {
@@ -24,17 +24,48 @@ template<> inline int ossia::supercollider::read(pyrslot* s)
     int i; slotIntVal(s, &i); return i;
 }
 
+template<> inline bool ossia::supercollider::read(pyrslot* s)
+{
+    return IsTrue(s);
+}
+
 template<> inline std::string ossia::supercollider::read(pyrslot* s)
 {
     char v[ STRMAXLE ]; slotStrVal(s, v, STRMAXLE);
     return static_cast<std::string>(v);
 }
 
+template<> inline void ossia::supercollider::write(pyrslot* s, int v)
+{
+    SetInt(s, v);
+}
+
+template<> inline void ossia::supercollider::write(pyrslot* s, float v)
+{
+    SetFloat(s, v);
+}
+
+template<> inline void ossia::supercollider::write(pyrslot* s, std::string v)
+{
+    PyrString* str = newPyrString(gMainVMGlobals->gc, v.c_str(), 0, true);
+    SetObject(s, str);
+}
+
+template<> inline void ossia::supercollider::write(pyrslot* s, void* v)
+{
+    SetPtr(s, v);
+}
+
+template<> inline void ossia::supercollider::write(pyrslot* s, bool v)
+{
+    SetBool(s, v);
+}
+
 template<typename T> inline void ossia::supercollider::register_object(
         pyrslot* s, T* object, uint16_t v_index )
 {
-    pyrslot *ptr_var = slotRawObject(s)->slots+v_index;
-    SetPtr (ptr_var, object);
+    pyrslot* ivar = slotRawObject(s)->slots+v_index;
+    SetPtr(  ivar, object );
 }
 
 template<typename T> inline T* ossia::supercollider::get_object(pyrslot* s, uint16_t v_index)
@@ -43,7 +74,7 @@ template<typename T> inline T* ossia::supercollider::get_object(pyrslot* s, uint
 }
 
 template<typename T> void ossia::supercollider::sendback_object(
-        pyrobject* object, T* pointer, const char *sym )
+        pyrobject* object, T* pointer, const char* sym )
 {
     gLangMutex.lock();
 
@@ -84,27 +115,40 @@ void tcp_connection::bind(pyrobject* object)
     m_object = object;
 }
 
-void tcp_connection::listen()
+inline std::string tcp_connection::remote_address() const
 {
+    return m_socket.remote_endpoint().address().to_v4().to_string();
+}
+
+inline uint16_t tcp_connection::remote_port() const
+{
+    return m_socket.remote_endpoint().port();
+}
+
+void tcp_connection::listen()
+{    
     boost::asio::async_read(m_socket, boost::asio::buffer(m_netbuffer),
-        boost::asio::transfer_all(),
+        boost::asio::transfer_at_least(1),
         boost::bind(&tcp_connection::read_handler, shared_from_this(),
         boost::asio::placeholders::error,
         boost::asio::placeholders::bytes_transferred));
 }
 
 void tcp_connection::read_handler(const boost::system::error_code& err, size_t nbytes)
-{    
+{        
+    if ( err ) { errpost_return(err); }
+    std::string chunk = m_netbuffer.data();
+
     gLangMutex.lock();
 
-    if ( !compiledOK ) // !TODO
+    if ( compiledOK )
     {
         auto g = gMainVMGlobals;
         g->canCallOS = true;
 
         ++g->sp; SetObject(g->sp, m_object);
-        // TODO: send data back
-        runInterpreter(g, getsym("onDataReceived"), 1);
+        ++g->sp; ossia::supercollider::write(g->sp, chunk);
+        runInterpreter(g, getsym("onDataReceived"), 2);
 
         g->canCallOS = false;
     }
@@ -125,7 +169,8 @@ void tcp_connection::write(const std::string& data)
 
 void tcp_connection::write_handler(const boost::system::error_code& err, size_t nbytes)
 {
-
+    if ( err ) { errpost_return(err); }
+    std::cout << "nbytes written: " << std::to_string(nbytes) << std::endl;
 }
 
 //----------------------------------------------------------------------------------- SERVER
@@ -146,7 +191,8 @@ tcp_server::tcp_server(boost::asio::io_context& ctx, uint16_t port, pyrslot *s) 
 
 tcp_server::~tcp_server()
 {
-
+    for ( auto& connection : m_connections )
+          connection.reset();
 }
 
 void tcp_server::start_accept()
@@ -161,14 +207,13 @@ void tcp_server::start_accept()
 void tcp_server::accept_handler( tcp_connection::pointer connection,
                                 const boost::system::error_code& err )
 {
-    if ( err )
-    {
-        std::cout <<err.message() << std::endl;
-        return;
-    }
+    if ( err ) { errpost_return(err); }
+
+    connection->listen();
+    sendback_object<tcp_connection>(
+        m_object, connection.get(), "onNewConnection");
 
     m_connections.push_back( connection );
-    sendback_object<tcp_connection>(m_object, connection.get(), "onNewConnection");
     start_accept();
 }
 
@@ -187,7 +232,7 @@ tcp_client::tcp_client(boost::asio::io_context& ctx, pyrslot *s) : m_ctx(ctx)
 
 tcp_client::~tcp_client()
 {
-
+    m_connection.reset();
 }
 
 void tcp_client::connect( std::string const& host_addr, uint16_t port )
@@ -195,31 +240,22 @@ void tcp_client::connect( std::string const& host_addr, uint16_t port )
     boost::asio::ip::tcp::endpoint endpoint(
                 boost::asio::ip::address::from_string(host_addr), port );
 
-    auto connection = tcp_connection::create(m_ctx);
-    auto& socket = connection->socket();
+    m_connection = tcp_connection::create(m_ctx);
+    auto& socket = m_connection->socket();
 
     socket.async_connect(endpoint,
         boost::bind(&tcp_client::connected_handler, this,
-        connection, boost::asio::placeholders::error));
+        m_connection, boost::asio::placeholders::error));
 }
 
 void tcp_client::connected_handler(
         tcp_connection::pointer connection, const boost::system::error_code& err )
 {
-    if ( err )
-    {
-        std::cout << err.message() << std::endl;
-        return;
-    }
+    if ( err ) { errpost_return(err); }
+    m_connection->listen();
 
-    m_connection = connection;
-    connection->listen();
-    sendback_object<tcp_connection>(m_object, connection.get(), "onConnected");
-}
-
-void tcp_client::write( const std::string& data)
-{
-    m_connection->write(data);
+    sendback_object<tcp_connection>(
+        m_object, m_connection.get(), "onConnected");
 }
 
 //----------------------------------------------------------------------------------- PRIMITIVES
@@ -268,7 +304,7 @@ int pyr_tcp_client_disconnect(VMGlobals* g, int n)
 int pyr_tcp_con_bind(VMGlobals* g, int n)
 {
     auto connection = get_object<tcp_connection>(g->sp, 0);
-    connection->bind(slotRawObject(g->sp-1));
+    connection->bind(slotRawObject(g->sp));
 
     return errNone;
 }
@@ -286,6 +322,24 @@ int pyr_tcp_con_write_ws(VMGlobals* g, int n)
     return errNone;
 }
 
+int pyr_tcp_con_get_remote_address(VMGlobals* g, int n)
+{
+    auto connection = get_object<tcp_connection>(g->sp, 0);
+    auto addr = connection->remote_address();
+    write<std::string>(g->sp, addr);
+
+    return errNone;
+}
+
+int pyr_tcp_con_get_remote_port(VMGlobals* g, int n)
+{
+    auto connection = get_object<tcp_connection>(g->sp, 0);
+    auto port = connection->remote_port();
+    write<int>(g->sp, port);
+
+    return errNone;
+}
+
 void ossia::supercollider::initialize()
 {
     int base, index = 0;
@@ -299,7 +353,10 @@ void ossia::supercollider::initialize()
     definePrimitive( base, index++, "_TcpClientDisconnect", pyr_tcp_client_disconnect, 2, 0);
     definePrimitive( base, index++, "_TcpClientFree", pyr_tcp_client_free, 1, 0);
 
-    definePrimitive( base, index++, "_TcpConnectionBind", pyr_tcp_con_bind, 2, 0);
+    definePrimitive( base, index++, "_TcpConnectionBind", pyr_tcp_con_bind, 1, 0);
     definePrimitive( base, index++, "_TcpConnectionWrite", pyr_tcp_con_write, 2, 0);
-    definePrimitive( base ,index++, "_TcpConnectionWriteWebSocket", pyr_tcp_con_write_ws, 3, 0);   
+    definePrimitive( base ,index++, "_TcpConnectionWriteWebSocket", pyr_tcp_con_write_ws, 3, 0);
+    definePrimitive( base, index++, "_TcpConnectionGetRemoteAddress", pyr_tcp_con_get_remote_address, 1, 0);
+    definePrimitive( base, index++, "_TcpConnectionGetRemotePort", pyr_tcp_con_get_remote_port, 1, 0);
+
 }
