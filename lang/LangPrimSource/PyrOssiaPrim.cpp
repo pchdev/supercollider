@@ -3,17 +3,20 @@
 #include <boost/bind.hpp>
 #include <iostream>
 #include <boost/thread.hpp>
+#include <QCryptographicHash>
+#include <QTcpSocket>
 
 #define STRMAXLE 4096
+#define errpost_return(err) std::cout << err.message() << std::endl; return;
 
 extern bool compiledOK;
+extern boost::asio::io_context ioService;
 
 using boost::asio::ip::tcp;
 using namespace ossia::supercollider;
 using pointer = boost::shared_ptr<tcp_connection>;
-extern boost::asio::io_context ioService;
-#define errpost_return(err) std::cout << err.message(); return;
 
+template<> inline bool ossia::supercollider::read( pyrslot* s) { return IsTrue( s ); }
 template<> inline float ossia::supercollider::read(pyrslot* s)
 {
     float f; slotFloatVal(s, &f); return f;
@@ -24,41 +27,22 @@ template<> inline int ossia::supercollider::read(pyrslot* s)
     int i; slotIntVal(s, &i); return i;
 }
 
-template<> inline bool ossia::supercollider::read(pyrslot* s)
-{
-    return IsTrue(s);
-}
-
 template<> inline std::string ossia::supercollider::read(pyrslot* s)
 {
     char v[ STRMAXLE ]; slotStrVal(s, v, STRMAXLE);
     return static_cast<std::string>(v);
 }
 
-template<> inline void ossia::supercollider::write(pyrslot* s, int v)
-{
-    SetInt(s, v);
-}
-
-template<> inline void ossia::supercollider::write(pyrslot* s, float v)
-{
-    SetFloat(s, v);
-}
+template<> inline void ossia::supercollider::write(pyrslot* s, int v)    { SetInt    ( s, v );   }
+template<> inline void ossia::supercollider::write(pyrslot* s, float v)  { SetFloat  ( s, v );   }
+template<> inline void ossia::supercollider::write(pyrslot* s, double v) { SetFloat  ( s, v );   }
+template<> inline void ossia::supercollider::write(pyrslot* s, void* v)  { SetPtr    ( s, v );   }
+template<> inline void ossia::supercollider::write(pyrslot* s, bool v)   { SetBool   ( s, v );   }
 
 template<> inline void ossia::supercollider::write(pyrslot* s, std::string v)
 {
     PyrString* str = newPyrString(gMainVMGlobals->gc, v.c_str(), 0, true);
-    SetObject(s, str);
-}
-
-template<> inline void ossia::supercollider::write(pyrslot* s, void* v)
-{
-    SetPtr(s, v);
-}
-
-template<> inline void ossia::supercollider::write(pyrslot* s, bool v)
-{
-    SetBool(s, v);
+    SetObject( s, str );
 }
 
 template<typename T> inline void ossia::supercollider::register_object(
@@ -83,37 +67,31 @@ template<typename T> void ossia::supercollider::sendback_object(
         auto g = gMainVMGlobals;
         g->canCallOS = true;
 
-        ++g->sp; SetObject(g->sp, object);
-        ++g->sp; SetPtr(g->sp, pointer);
-        runInterpreter(g, getsym(sym), 2);
+        ++g->sp; SetObject  ( g->sp, object );
+        ++g->sp; SetPtr     ( g->sp, pointer );
+        runInterpreter      ( g, getsym(sym), 2 );
 
         g->canCallOS = false;
     }
 
     gLangMutex.unlock();
-
 }
 
 inline void ossia::supercollider::free(vmglobals* g, pyrslot* s)
 {
-    g->gc->Free(slotRawObject(s));
-    SetNil(s);
+    g->gc->Free(slotRawObject( s ));
+    SetNil( s );
 }
 
 //----------------------------------------------------------------------------------- CONNECTIONS
 
-pointer tcp_connection::create(boost::asio::io_context& io_context)
+tcp_connection::ptr tcp_connection::create(boost::asio::io_context& io_context)
 {
-    return pointer( new tcp_connection(io_context) );
+    return tcp_connection::ptr( new tcp_connection(io_context) );
 }
 
 tcp_connection::tcp_connection( boost::asio::io_context& ctx ) :
     m_socket(ctx) { }
-
-void tcp_connection::bind(pyrobject* object)
-{
-    m_object = object;
-}
 
 inline std::string tcp_connection::remote_address() const
 {
@@ -136,8 +114,10 @@ void tcp_connection::listen()
 
 void tcp_connection::read_handler(const boost::system::error_code& err, size_t nbytes)
 {        
-    if ( err ) { errpost_return(err); }
+    if ( err ) { errpost_return( err ); }
     std::string chunk = m_netbuffer.data();
+
+    m_observer->on_data(bytearray(chunk.begin(), chunk.end()));
 
     gLangMutex.lock();
 
@@ -146,9 +126,9 @@ void tcp_connection::read_handler(const boost::system::error_code& err, size_t n
         auto g = gMainVMGlobals;
         g->canCallOS = true;
 
-        ++g->sp; SetObject(g->sp, m_object);
-        ++g->sp; ossia::supercollider::write(g->sp, chunk);
-        runInterpreter(g, getsym("onDataReceived"), 2);
+        ++g->sp; SetObject( g->sp, m_object );
+        ++g->sp; ossia::supercollider::write( g->sp, chunk );
+        runInterpreter(g, getsym( "pvOnDataReceived" ), 2);
 
         g->canCallOS = false;
     }
@@ -169,23 +149,20 @@ void tcp_connection::write(const std::string& data)
 
 void tcp_connection::write_handler(const boost::system::error_code& err, size_t nbytes)
 {
-    if ( err ) { errpost_return(err); }
+    if ( err ) { errpost_return( err ); }
     std::cout << "nbytes written: " << std::to_string(nbytes) << std::endl;
 }
 
 //----------------------------------------------------------------------------------- SERVER
 
-tcp_server* tcp_server::create(uint16_t port, pyrslot* s)
+tcp_server::ptr tcp_server::create(boost::asio::io_context& ctx, uint16_t port)
 {
-    return new tcp_server(ioService, port, s);
+    return tcp_server::ptr(new tcp_server(ctx, port));
 }
 
-tcp_server::tcp_server(boost::asio::io_context& ctx, uint16_t port, pyrslot *s) :
+tcp_server::tcp_server(boost::asio::io_context& ctx, uint16_t port) :
     m_ctx(ctx), m_acceptor(ctx, tcp::endpoint(tcp::v4(), port))
 {
-    m_object = slotRawObject(s);
-    register_object<tcp_server>(s, this, 0);
-
     start_accept();
 }
 
@@ -204,30 +181,27 @@ void tcp_server::start_accept()
         boost::asio::placeholders::error ) );
 }
 
-void tcp_server::accept_handler( tcp_connection::pointer connection,
+void tcp_server::accept_handler( tcp_connection::ptr connection,
                                 const boost::system::error_code& err )
 {
     if ( err ) { errpost_return(err); }
 
     connection->listen();
-    sendback_object<tcp_connection>(
-        m_object, connection.get(), "onNewConnection");
-
     m_connections.push_back( connection );
     start_accept();
+
+    m_observer->on_connection();
 }
 
 //----------------------------------------------------------------------------------- CLIENT
 
-tcp_client* tcp_client::create(pyrslot* s)
+tcp_client::ptr tcp_client::create(boost::asio::io_context& ctx)
 {
-    return new tcp_client(ioService, s);
+    return tcp_client::ptr(new tcp_client(ctx));
 }
 
-tcp_client::tcp_client(boost::asio::io_context& ctx, pyrslot *s) : m_ctx(ctx)
+tcp_client::tcp_client(boost::asio::io_context& ctx) : m_ctx(ctx)
 {
-    m_object = slotRawObject(s);
-    register_object<tcp_client>(s, this, 0);
 }
 
 tcp_client::~tcp_client()
@@ -240,7 +214,7 @@ void tcp_client::connect( std::string const& host_addr, uint16_t port )
     boost::asio::ip::tcp::endpoint endpoint(
                 boost::asio::ip::address::from_string(host_addr), port );
 
-    m_connection = tcp_connection::create(m_ctx);
+    m_connection = tcp_connection::create( m_ctx );
     auto& socket = m_connection->socket();
 
     socket.async_connect(endpoint,
@@ -249,114 +223,252 @@ void tcp_client::connect( std::string const& host_addr, uint16_t port )
 }
 
 void tcp_client::connected_handler(
-        tcp_connection::pointer connection, const boost::system::error_code& err )
+        tcp_connection::ptr, const boost::system::error_code& err )
 {
-    if ( err ) { errpost_return(err); }
+    if ( err ) { errpost_return( err ); }
     m_connection->listen();
 
-    sendback_object<tcp_connection>(
-        m_object, m_connection.get(), "onConnected");
+    m_observer->on_connection();
+}
+
+// ---------------------------------------------------------------------------------- OBSERVERS
+
+sc_observer::sc_observer(pyrobject* object,
+                         std::string csym,
+                         std::string dsym,
+                         std::string datasym )
+{
+
+}
+
+void sc_observer::on_connection()
+{
+
+}
+
+void sc_observer::on_disconnection()
+{
+
+}
+
+void sc_observer::on_data(bytearray data)
+{
+
+}
+
+// ---------------------------------------------------------------------------------- WEBSOCKET
+
+hwebsocket_connection::hwebsocket_connection(tcp_connection::ptr con)
+    : m_tcp_connection(con)
+{
+    std::function<void(bytearray)> dfunc =
+            std::bind( &hwebsocket_connection::on_tcp_data, this,
+                      std::placeholders::_1 );
+
+    auto observer = ws_observer::ptr( new ws_observer );
+    observer->set_data_callback( dfunc );
+    m_tcp_connection->set_observer( observer );
+
+    // send handshake request
+}
+
+void hwebsocket_connection::on_tcp_data(bytearray data)
+{
+    m_observer->on_data( data );
+}
+
+void hwebsocket_connection::write_text(std::string const& text)
+{
+
+}
+
+void hwebsocket_connection::write_binary(bytearray const& data)
+{
+
+}
+
+void hwebsocket_connection::write_raw(bytearray const& data)
+{
+    std::string str( data.begin(), data.end() );
+    m_tcp_connection->write( str );
+}
+
+void hwebsocket_connection::write_osc()
+{
+    // get encoded binary
+    // call write_binary
+}
+
+void hwebsocket_connection::set_observer(netobserver::ptr observer)
+{
+    m_observer = observer;
+}
+
+// ----
+
+hwebsocket_client::hwebsocket_client(boost::asio::io_context& ctx) :
+    m_tcp_client(ctx)
+{
+    std::function<void()> cfunc =
+            std::bind( &hwebsocket_client::on_tcp_connected, this );
+
+    std::function<void()> dfunc =
+            std::bind( &hwebsocket_client::on_tcp_disconnected, this );
+
+    auto observer = ws_observer::ptr( new ws_observer );
+    observer->set_connected_callback( cfunc );
+    observer->set_disconnected_callback( dfunc );
+
+    m_tcp_client.set_observer( observer );
+}
+
+hwebsocket_client::~hwebsocket_client()
+{
+
+}
+
+void hwebsocket_client::on_tcp_connected()
+{
+    // upgrade tcp_connection to websocket
+    m_connection = hwebsocket_connection::ptr(
+                new hwebsocket_connection(m_tcp_client.connection()) );
+
+    // set data observer until handshake is accepted
+    std::function<void(bytearray)> dfunc =
+            std::bind( &hwebsocket_client::on_tcp_data, this,
+                      std::placeholders::_1 );
+
+    auto observer = ws_observer::ptr( new ws_observer );
+    observer->set_data_callback( dfunc );
+    m_connection->set_observer( observer );
+}
+
+void hwebsocket_client::on_tcp_data( bytearray data )
+{
+    std::string str(data.begin(), data.end());
+
+    if( str.find( "WebSocket-Sec-Accept" ) != std::string::npos )
+    {
+        // check accept key
+
+
+        // sc-observer
+        m_observer->on_connection();
+        m_connection->set_observer( m_observer );
+    }
+
+}
+
+void hwebsocket_client::on_tcp_disconnected()
+{
+
+    m_connection.reset();
+    m_observer->on_disconnection();
+}
+
+// ----
+
+hwebsocket_server::hwebsocket_server(boost::asio::io_context& ctx, uint16_t port) :
+    m_tcp_server(ctx, port)
+{
+    std::function<void()> cfunc =
+            std::bind( &hwebsocket_server::on_new_tcp_connection, this );
+
+    std::function<void()> dfunc =
+            std::bind( &hwebsocket_server::on_tcp_disconnection, this );
+
+    auto observer = ws_observer::ptr( new ws_observer );
+    observer->set_connected_callback( cfunc );
+    observer->set_disconnected_callback( dfunc );
+
+    m_tcp_server.set_observer( observer );
+
+}
+
+void hwebsocket_server::on_new_tcp_connection()
+{
+
+
+}
+
+void hwebsocket_server::on_tcp_disconnection()
+{
+
 }
 
 //----------------------------------------------------------------------------------- PRIMITIVES
 
-int pyr_tcp_server_instantiate_run(VMGlobals* g, int n)
-{
-    tcp_server::create(read<int>(g->sp), g->sp-1);
-    return errNone;
-}
-
-int pyr_tcp_server_free(VMGlobals* g, int n)
-{
-    delete get_object<tcp_server>(g->sp, 0);
-    free( g, g->sp );
-
-    return errNone;
-}
-
-int pyr_tcp_client_instantiate(VMGlobals* g, int n)
-{
-    tcp_client::create(g->sp);
-    return errNone;
-}
-
-int pyr_tcp_client_free(VMGlobals* g, int n)
-{
-    delete get_object<tcp_client>(g->sp, 0);
-    free( g, g->sp );
-
-    return errNone;
-}
-
-int pyr_tcp_client_connect(VMGlobals* g, int n)
-{
-    auto client = get_object<tcp_client>(g->sp-2, 0);
-    client->connect(read<std::string>(g->sp-1), read<int>(g->sp));
-
-    return errNone;
-}
-
-int pyr_tcp_client_disconnect(VMGlobals* g, int n)
+int pyr_ws_con_write_text(VMGlobals* g, int)
 {
     return errNone;
 }
 
-int pyr_tcp_con_bind(VMGlobals* g, int n)
-{
-    auto connection = get_object<tcp_connection>(g->sp, 0);
-    connection->bind(slotRawObject(g->sp));
-
-    return errNone;
-}
-
-int pyr_tcp_con_write(VMGlobals* g, int n)
-{
-    auto connection = get_object<tcp_connection>(g->sp-1, 0);
-    connection->write(read<std::string>(g->sp));
-
-    return errNone;
-}
-
-int pyr_tcp_con_write_ws(VMGlobals* g, int n)
+int pyr_ws_con_write_osc(VMGlobals* g, int)
 {
     return errNone;
 }
 
-int pyr_tcp_con_get_remote_address(VMGlobals* g, int n)
+int pyr_ws_con_write_binary(VMGlobals* g, int)
 {
-    auto connection = get_object<tcp_connection>(g->sp, 0);
-    auto addr = connection->remote_address();
-    write<std::string>(g->sp, addr);
-
     return errNone;
 }
 
-int pyr_tcp_con_get_remote_port(VMGlobals* g, int n)
+int pyr_ws_con_write_raw(VMGlobals* g, int)
 {
-    auto connection = get_object<tcp_connection>(g->sp, 0);
-    auto port = connection->remote_port();
-    write<int>(g->sp, port);
+    return errNone;
+}
 
+// ------------------------------------------
+
+int pyr_ws_client_create(VMGlobals* g, int)
+{
+//    tcp_client::create(ioService);
+    return errNone;
+}
+
+int pyr_ws_client_connect(VMGlobals* g, int)
+{
+    return errNone;
+}
+
+int pyr_ws_client_disconnect(VMGlobals* g, int)
+{
+    return errNone;
+}
+
+int pyr_ws_client_free(VMGlobals* g, int)
+{
+    return errNone;
+}
+
+// ---------------------------------------------------- SERVER
+
+int pyr_ws_server_instantiate_run(VMGlobals* g, int)
+{
+//    tcp_server::create(ioService, read<int>(g->sp));
+    return errNone;
+}
+
+int pyr_ws_server_free(VMGlobals* g, int)
+{
     return errNone;
 }
 
 void ossia::supercollider::initialize()
 {
     int base, index = 0;
-    base = nextPrimitiveIndex();    
+    base = nextPrimitiveIndex();        
 
-    definePrimitive( base, index++, "_TcpServerInstantiateRun", pyr_tcp_server_instantiate_run, 2, 0 );
-    definePrimitive( base, index++, "_TcpServerFree", pyr_tcp_server_free, 1, 0);
+    definePrimitive( base, index++, "_WebSocketConnectionWriteText", pyr_ws_con_write_text, 2, 0);
+    definePrimitive( base, index++, "_WebSocketConnectionWriteOSC", pyr_ws_con_write_osc, 2, 0);
+    definePrimitive( base, index++, "_WebSocketConnectionWriteBinary", pyr_ws_con_write_binary, 2, 0);
+    definePrimitive( base, index++, "_WebSocketConnectionWriteRaw", pyr_ws_con_write_raw, 2, 0);
 
-    definePrimitive( base, index++, "_TcpClientInstantiate", pyr_tcp_client_instantiate, 1, 0);
-    definePrimitive( base, index++, "_TcpClientConnect", pyr_tcp_client_connect, 3, 0);
-    definePrimitive( base, index++, "_TcpClientDisconnect", pyr_tcp_client_disconnect, 2, 0);
-    definePrimitive( base, index++, "_TcpClientFree", pyr_tcp_client_free, 1, 0);
+    definePrimitive( base, index++, "_WebSocketClientCreate", pyr_ws_client_create, 1, 0);
+    definePrimitive( base, index++, "_WebSocketClientConnect", pyr_ws_client_connect, 3, 0);
+    definePrimitive( base, index++, "_WebSocketClientDisconnect", pyr_ws_client_disconnect, 1, 0);
+    definePrimitive( base, index++, "_WebSocketClientFree", pyr_ws_client_free, 1, 0);
 
-    definePrimitive( base, index++, "_TcpConnectionBind", pyr_tcp_con_bind, 1, 0);
-    definePrimitive( base, index++, "_TcpConnectionWrite", pyr_tcp_con_write, 2, 0);
-    definePrimitive( base ,index++, "_TcpConnectionWriteWebSocket", pyr_tcp_con_write_ws, 3, 0);
-    definePrimitive( base, index++, "_TcpConnectionGetRemoteAddress", pyr_tcp_con_get_remote_address, 1, 0);
-    definePrimitive( base, index++, "_TcpConnectionGetRemotePort", pyr_tcp_con_get_remote_port, 1, 0);
-
+    definePrimitive( base, index++, "_WebSocketServerInstantiateRun", pyr_ws_server_instantiate_run, 2, 0);
+    definePrimitive( base, index++, "_WebSocketServerInstantiateRun", pyr_ws_server_free, 1, 0);
 }

@@ -1,84 +1,81 @@
-TcpConnection
+WebSocketConnection
 {
 	var m_ptr;
-	var m_rcallback;
-	var m_remote_addr, m_remote_port;
-	var m_local_addr, m_local_port;
+	var m_address;
+	var m_port;
+	var textMessageCallback;
+	var binaryMessageCallback;
+	var oscMessageCallback;
+	var httpMessageCallback;
 
-	// when new is called
-	// tcp_connection (cpp) will store a pointer of this (sc) object
-	// in order to make the appropriate callbacks when data is received
-	// (prmBind method)
-
-	*new { |ptr|
-		^this.newCopyArgs(ptr).tcpConnectionCtor()
+	*new { |ptr, addr, port|
+		^this.newCopyArgs(ptr, addr, port)
 	}
 
-	tcpConnectionCtor
-	{
-		this.prmBind();
-		m_remote_addr = this.prmGetRemoteAddr();
-		m_remote_port = this.prmGetRemotePort();
+	onTextMessageReceived { |callback|
+		textMessageCallback = callback;
 	}
 
-	onDataReceived { |data|
-		m_rcallback.value(data);
+	onBinaryMessageReceived { |callback|
+		binaryMessageCallback = callback;
 	}
 
-	setReadCallback { |cb|
-		m_rcallback = cb;
+	onOSCMessageReceived { |callback|
+		oscMessageCallback = callback;
 	}
 
-	write { |data|
-		this.prmWrite(data);
+	onHTTPReplyReceived { |callback|
+		httpMessageCallback = callback;
 	}
 
-	prmWrite { |data|
-		_TcpConnectionWrite
+	// prim-callbacks ---------------------------
+
+	pvOnTextMessageReceived { |message|
+		textMessageCallback.value(message);
+	}
+
+	pvOnBinaryMessageReceived { |message|
+		binaryMessageCallback.value(message);
+	}
+
+	pvOnOSCMessageReceived { |address, arguments|
+		oscMessageCallback.value(address, arguments);
+	}
+
+	pvOnHTTPMessageReceived { |message|
+		httpMessageCallback.value(message);
+	}
+
+	writeText { |msg|
+		_WebSocketConnectionWriteText
 		^this.primitiveFailed
 	}
 
-	prmBind {
-		_TcpConnectionBind
+	writeOSC { |addr, arguments|
+		_WebSocketConnectionWriteOSC
 		^this.primitiveFailed
 	}
 
-	remoteAddress {
-		^m_remote_addr;
-	}
-
-	remotePort {
-		^m_remote_port;
-	}
-
-	prmGetRemoteAddr {
-		_TcpConnectionGetRemoteAddress
+	writeBinary { |data|
+		_WebSocketConnectionWriteBinary
 		^this.primitiveFailed
 	}
 
-	prmGetRemotePort {
-		_TcpConnectionGetRemotePort
+	writeRaw { |data|
+		_WebSocketConnectionWriteRaw
 		^this.primitiveFailed
 	}
 }
 
-TcpClient
+WebSocketClient
 {
 	var m_ptr;
-	var m_host_addr;
-	var m_ccallback;
-	var m_rcallback;
 	var m_connection;
+	var <connected;
+	var m_ccb; // connected
+	var m_dcb; // disconnected
+
 	classvar g_instances;
-
-	*new { |cfunc, rfunc|
-		^this.newCopyArgs(0x0, "127.0.0.1", cfunc, rfunc)
-		.tcpClientCtor().stackNew();
-	}
-
-	*newConnect { |cfunc, rfunc|
-
-	}
 
 	*initClass {
 		g_instances = [];
@@ -87,66 +84,112 @@ TcpClient
 		})
 	}
 
-	stackNew {
+	// CREATE -------------------------------
+
+	*new {
+		^this.new.wsClientCtor();
+	}
+
+	wsClientCtor {
+		connected = false;
 		g_instances = g_instances.add(this);
 	}
 
-	tcpClientCtor {
-		this.prmInstantiate();
-	}
-
-	prmInstantiate {
-		_TcpClientInstantiate
+	primCreate {
+		_WebSocketClientCreate
 		^this.primitiveFailed
 	}
 
-	connect { |hostAddr, port|
-		this.prmConnect(hostAddr, port);
-	}
+	// CONNECTION/DISCONNECTION ------------------------------
 
-	prmConnect { |hostAddr, port|
-		_TcpClientConnect
+	connect { |hostAddr, port|
+		_WebSocketClientConnect
 		^this.primitiveFailed
 	}
 
 	disconnect {
-		_TcpClientDisconnect
+		_WebSocketClientDisconnect
 		^this.primitiveFailed
 	}
 
-	onConnected { |connection|
-		m_connection = TcpConnection(connection);
-		m_connection.setReadCallback(m_rcallback);
-		m_ccallback.value();
+	onConnected { |callback|
+		m_ccb = callback;
 	}
 
-	write { |data|
-		m_connection.write(data);
+	onDisconnected { |callback|
+		m_dcb = callback;
+	}
+
+	pvOnConnected { |connection, addr, port|
+		m_connection = WebSocketConnection(connection, addr, port);
+		connected = true;
+		m_ccb.value(addr, port);
+	}
+
+	pvOnDisconnected {
+		connected = false;
+		m_dcb.value();
+		m_connection = nil;
+	}
+
+	// CALLBACKS -----------------------------
+
+	onTextMessageReceived { |callback|
+		m_connection.onTextMessageReceived(callback);
+	}
+
+	onBinaryMessageReceived { |callback|
+		m_connection.onBinaryMessageReceived(callback);
+	}
+
+	onOSCMessageReceived { |callback|
+		m_connection.onOSCMessageReceived(callback);
+	}
+
+	onHTTPReplyReceived { |callback|
+		m_connection.onHTTPReplyReceived(callback);
+	}
+
+	// WRITING -------------------------------
+
+	writeText { |msg|
+		m_connection.writeText(msg);
+	}
+
+	writeOSC { |addr ...arguments|
+		m_connection.writeOSC(addr, arguments);
+	}
+
+	writeBinary { |data|
+		m_connection.writeBinary(data);
+	}
+
+	writeRaw { |data|
+		m_connection.writeRaw(data);
 	}
 
 	free {
 		g_instances.remove(this);
-		this.prmFree();
+		m_connection = nil;
+		this.primFree();
 	}
 
-	prmFree {
-		_TcpClientFree
+	primFree {
+		_WebSocketClientFree
 		^this.primitiveFailed
 	}
 }
 
-TcpServer
+WebSocketServer
 {
 	var m_ptr;
 	var m_port;
-	var m_nconnection_callback;
-	var m_dconnection_callback;
 	var m_connections;
-	classvar g_instances;
+	var m_ncb;
+	var m_dcb;
+	var m_hcb;
 
-	*new { |port, cfunc, dfunc|
-		^this.newCopyArgs(0x0, port, cfunc, dfunc).tcpServerCtor().stackNew();
-	}
+	classvar g_instances;
 
 	*initClass {
 		g_instances = [];
@@ -156,23 +199,18 @@ TcpServer
 		})
 	}
 
-	stackNew {
-		g_instances = g_instances.add(this);
+	*new { |port|
+		^this.newCopyArgs(0x0, port).wsServerCtor();
 	}
 
-	tcpServerCtor {
-		m_connections = [];
+	wsServerCtor {
+		g_instances = g_instances.add(this);
 		this.prmInstantiateRun(m_port);
 	}
 
-	onNewConnection { |connection|
-		var con = TcpConnection(connection);
-		m_connections = m_connections.add(con);
-		m_nconnection_callback.value(con);
-	}
-
-	onDisconnection { |connection|
-
+	prmInstantiateRun { |port|
+		_WebSocketServerInstantiateRun
+		^this.primitiveFailed
 	}
 
 	at { |index|
@@ -183,9 +221,30 @@ TcpServer
 		m_connections.do(_.write(data));
 	}
 
-	prmInstantiateRun { |port|
-		_TcpServerInstantiateRun
-		^this.primitiveFailed
+	onNewConnection { |callback|
+		m_ncb = callback;
+	}
+
+	onDisconnection { |callback|
+		m_dcb = callback;
+	}
+
+	onHTTPRequestReceived { |callback|
+		m_hcb = callback;
+	}
+
+	pvOnNewConnection { |connection, addr, port|
+		var con = WebSocketConnection(connection, addr, port);
+		m_connections = m_connections.add(connection);
+		m_ncb.value(connection, addr, port)
+	}
+
+	pvOnHTTPRequestReceived { |request|
+		m_hcb.value(request);
+	}
+
+	pvOnDisconnection { |connection|
+
 	}
 
 	free {
@@ -194,80 +253,9 @@ TcpServer
 	}
 
 	prmFree {
-		_TcpServerFree
+		_WebSocketServerFree
 		^this.primitiveFailed
 	}
-}
-
-WebSocketConnection
-{
-	var m_tcpcon;
-
-	*new { |tcpcon|
-		^this.newCopyArgs(tcpcon)
-	}
-
-	onTextMessageReceived
-	{
-
-	}
-
-	onBinaryMessageReceived
-	{
-
-	}
-
-	writeText
-	{
-
-	}
-
-	writeBinary
-	{
-
-	}
-
-}
-
-WebSocketClient
-{
-	var m_host_addr;
-	var m_tcp_client;
-
-	*new { |hostAddr|
-		^this.newCopyArgs(hostAddr).wsClientCtor();
-	}
-
-	wsClientCtor {
-		m_tcp_client = TcpClient();
-	}
-
-	connect { |hostAddr|
-		m_tcp_client.connect(hostAddr);
-	}
-
-	disconnect { }
-
-	writeText { |msg| }
-	writeBinary { |msg| }
-
-	onTextMessageReceived { }
-	onBinaryMessageReceived { }
-
-}
-
-WebSocketServer
-{
-	var m_port;
-	var m_connections;
-
-	*new { |port|
-		^this.newCopyArgs(port)
-	}
-
-	onNewConnection {}
-	getConnection {}
-	onDisconnection {}
 }
 
 
