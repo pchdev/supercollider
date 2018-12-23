@@ -93,10 +93,12 @@ class ws_observer : public netobserver
     std::function<void(netobject::ptr, bytearray)> m_data_func;
 };
 
-class sc_observer : public netobserver
+template<typename T> class sc_observer : public netobserver
 {
     public:
-    sc_observer( pyrobject* object,
+    sc_observer(
+        pyrslot* slot,
+        T* object,
         std::string csym,
         std::string dsym,
         std::string datasym );
@@ -200,6 +202,8 @@ class hwebsocket_client : public netobject
     ~hwebsocket_client();
 
     hwebsocket_connection::ptr connection();
+    void connect(std::string addr, uint16_t port);
+    void disconnect();
 
     void on_tcp_data(netobject::ptr, bytearray data);
     void on_tcp_connected(netobject::ptr);

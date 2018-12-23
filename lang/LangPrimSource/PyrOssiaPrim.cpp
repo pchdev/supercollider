@@ -243,25 +243,24 @@ void tcp_client::connected_handler(
 
 // ---------------------------------------------------------------------------------- OBSERVERS
 
-sc_observer::sc_observer(pyrobject* object,
-                         std::string csym,
-                         std::string dsym,
-                         std::string datasym )
+template<typename T> sc_observer<T>::sc_observer(pyrslot *slot, T* object,
+    std::string csym, std::string dsym, std::string datasym )
+{
+    register_object<T>(slot, object, 0);
+}
+
+template<typename T> void sc_observer<T>::on_connection(netobject::ptr obj)
+{
+    // calls sc_object method with obj pointer argument
+
+}
+
+template<typename T> void sc_observer<T>::on_disconnection(netobject::ptr obj)
 {
 
 }
 
-void sc_observer::on_connection(netobject::ptr obj)
-{
-
-}
-
-void sc_observer::on_disconnection(netobject::ptr obj)
-{
-
-}
-
-void sc_observer::on_data(netobject::ptr obj, bytearray data)
+template<typename T> void sc_observer<T>::on_data(netobject::ptr obj, bytearray data)
 {
 
 }
@@ -272,8 +271,8 @@ hwebsocket_connection::hwebsocket_connection(tcp_connection::ptr con)
     : m_tcp_connection(con)
 {
     std::function<void(netobject::ptr, bytearray)> dfunc =
-            std::bind( &hwebsocket_connection::on_tcp_data, this,
-                      std::placeholders::_2 );
+            std::bind( &hwebsocket_connection::on_tcp_data,
+                       this, std::placeholders::_1, std::placeholders::_2 );
 
     auto observer = ws_observer::ptr( new ws_observer );
     observer->set_data_callback( dfunc );
@@ -312,11 +311,13 @@ void hwebsocket_connection::write_osc()
 hwebsocket_client::hwebsocket_client(boost::asio::io_context& ctx) :
     m_tcp_client(ctx)
 {
-    std::function<void()> cfunc =
-            std::bind( &hwebsocket_client::on_tcp_connected, this );
+    std::function<void(netobject::ptr)> cfunc =
+            std::bind( &hwebsocket_client::on_tcp_connected,
+                       this, std::placeholders::_1);
 
-    std::function<void()> dfunc =
-            std::bind( &hwebsocket_client::on_tcp_disconnected, this );
+    std::function<void(netobject::ptr)> dfunc =
+            std::bind( &hwebsocket_client::on_tcp_disconnected,
+                       this, std::placeholders::_1 );
 
     auto observer = ws_observer::ptr( new ws_observer );
     observer->set_connected_callback( cfunc );
@@ -331,7 +332,7 @@ hwebsocket_client::~hwebsocket_client()
     m_connection.reset();
 }
 
-void hwebsocket_client::on_tcp_connected(netobject::ptr object)
+void hwebsocket_client::on_tcp_connected(netobject::ptr)
 {
     // upgrade tcp_connection to websocket
     m_connection = hwebsocket_connection::ptr(
@@ -339,19 +340,18 @@ void hwebsocket_client::on_tcp_connected(netobject::ptr object)
 
     // set data observer until handshake is accepted
     std::function<void(netobject::ptr, bytearray)> dfunc =
-            std::bind( &hwebsocket_client::on_tcp_data, this,
-                      std::placeholders::_2 );
+            std::bind( &hwebsocket_client::on_tcp_data,
+                       this, std::placeholders::_1, std::placeholders::_2 );
 
     auto observer = ws_observer::ptr( new ws_observer );
     observer->set_data_callback( dfunc );
     m_connection->set_observer( observer );
 
     // send handshake request
-
     //m_connection->write_raw();
 }
 
-void hwebsocket_client::on_tcp_data(netobject::ptr object, bytearray data )
+void hwebsocket_client::on_tcp_data(netobject::ptr, bytearray data )
 {
     std::string str(data.begin(), data.end());
 
@@ -418,21 +418,31 @@ void hwebsocket_server::on_tcp_disconnection(netobject::ptr object)
 
 int pyr_ws_con_write_text(VMGlobals* g, int)
 {
+    auto con = get_object<hwebsocket_connection>(g->sp-1, 0);
+    con->write_text(read<std::string>(g->sp));
+
     return errNone;
 }
 
 int pyr_ws_con_write_osc(VMGlobals* g, int)
 {
+    auto con = get_object<hwebsocket_connection>(g->sp-2, 0);
+    con->write_osc(); // !TODO
+
     return errNone;
 }
 
 int pyr_ws_con_write_binary(VMGlobals* g, int)
 {
+    auto con = get_object<hwebsocket_connection>(g->sp-1, 0);
+    // TODO
+
     return errNone;
 }
 
 int pyr_ws_con_write_raw(VMGlobals* g, int)
 {
+    auto con = get_object<hwebsocket_connection>(g->sp-1, 0);
     return errNone;
 }
 
@@ -440,22 +450,30 @@ int pyr_ws_con_write_raw(VMGlobals* g, int)
 
 int pyr_ws_client_create(VMGlobals* g, int)
 {
-//    tcp_client::create(ioService);
+    auto client = new hwebsocket_client( ioService );
+    auto observer = new sc_observer<hwebsocket_client>(
+        g->sp, client, "pvOnConnected", "pvOnDisconnected", "");
+
+    client->set_observer(netobserver::ptr( observer ));
+
     return errNone;
 }
 
 int pyr_ws_client_connect(VMGlobals* g, int)
 {
+    auto client = get_object<hwebsocket_client>(g->sp, 0);
     return errNone;
 }
 
 int pyr_ws_client_disconnect(VMGlobals* g, int)
 {
+    auto client = get_object<hwebsocket_client>(g->sp, 0);
     return errNone;
 }
 
 int pyr_ws_client_free(VMGlobals* g, int)
 {
+    delete get_object<hwebsocket_client>(g->sp, 0);
     return errNone;
 }
 
@@ -463,12 +481,14 @@ int pyr_ws_client_free(VMGlobals* g, int)
 
 int pyr_ws_server_instantiate_run(VMGlobals* g, int)
 {
-//    tcp_server::create(ioService, read<int>(g->sp));
+    auto server = new hwebsocket_server(ioService, read<int>(g->sp));
+
     return errNone;
 }
 
 int pyr_ws_server_free(VMGlobals* g, int)
 {
+    auto server = get_object<hwebsocket_server>(g->sp, 0);
     return errNone;
 }
 
