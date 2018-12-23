@@ -117,7 +117,8 @@ void tcp_connection::read_handler(const boost::system::error_code& err, size_t n
     if ( err ) { errpost_return( err ); }
     std::string chunk = m_netbuffer.data();
 
-    m_observer->on_data(bytearray(chunk.begin(), chunk.end()));
+    m_observer->on_data( netobject::ptr(this),
+        bytearray(chunk.begin(), chunk.end()));
 
     gLangMutex.lock();
 
@@ -249,9 +250,8 @@ template<typename T> sc_observer<T>::sc_observer(pyrslot *slot, T* object,
     register_object<T>(slot, object, 0);
 }
 
-template<typename T> void sc_observer<T>::on_connection(netobject::ptr obj)
+template<> void sc_observer<hwebsocket_client>::on_connection(netobject::ptr obj)
 {
-    // calls sc_object method with obj pointer argument
 
 }
 
@@ -399,14 +399,33 @@ void hwebsocket_server::on_new_tcp_connection(netobject::ptr object)
     tcp_connection::ptr connection(object.get());
     auto observer = ws_observer::ptr( new ws_observer );
 
+    std::function<void(netobject::ptr, bytearray)> dfunc =
+            std::bind( &hwebsocket_server::on_tcp_data,
+                       this, std::placeholders::_1, std::placeholders::_2 );
+
     // observe connection's incoming tcp_data
     // look for a websocket handshake pattern
-
+    observer->set_data_callback(dfunc);
+    connection->set_observer(observer);
 }
 
 void hwebsocket_server::on_tcp_data(netobject::ptr object, bytearray data)
 {
+    auto str = std::string(data.begin(), data.end());
 
+    if( str.find( "WebSocket-Sec-Key" ) != std::string::npos )
+    {
+        // parse key and send accept key
+        // TODO
+
+        // upgrade tcp_connection to websocket
+
+        tcp_connection::ptr connection(object.get());
+        auto ptr = hwebsocket_connection::ptr(new hwebsocket_connection(connection));
+        m_connections.push_back(ptr);
+
+        m_observer->on_connection(ptr);
+    }
 }
 
 void hwebsocket_server::on_tcp_disconnection(netobject::ptr object)
@@ -415,6 +434,14 @@ void hwebsocket_server::on_tcp_disconnection(netobject::ptr object)
 }
 
 //----------------------------------------------------------------------------------- PRIMITIVES
+
+int pyr_ws_con_bind(VMGlobals* g, int)
+{
+    auto con = get_object<hwebsocket_connection>(g->sp, 0);
+    auto obs = new sc_observer<hwebsocket_connection>(g->sp, con);
+
+    return errNone;
+}
 
 int pyr_ws_con_write_text(VMGlobals* g, int)
 {
@@ -501,6 +528,7 @@ void ossia::supercollider::initialize()
     definePrimitive( base, index++, "_WebSocketConnectionWriteOSC", pyr_ws_con_write_osc, 2, 0);
     definePrimitive( base, index++, "_WebSocketConnectionWriteBinary", pyr_ws_con_write_binary, 2, 0);
     definePrimitive( base, index++, "_WebSocketConnectionWriteRaw", pyr_ws_con_write_raw, 2, 0);
+    definePrimitive( base, index++, "_WebSocketConnectionBind", pyr_ws_con_bind, 1, 0);
 
     definePrimitive( base, index++, "_WebSocketClientCreate", pyr_ws_client_create, 1, 0);
     definePrimitive( base, index++, "_WebSocketClientConnect", pyr_ws_client_connect, 3, 0);
