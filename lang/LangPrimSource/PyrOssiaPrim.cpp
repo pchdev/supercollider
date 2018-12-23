@@ -172,6 +172,16 @@ tcp_server::~tcp_server()
           connection.reset();
 }
 
+tcp_connection::ptr tcp_server::operator[](uint16_t index)
+{
+    return m_connections[index];
+}
+
+tcp_connection::ptr tcp_server::last()
+{
+    return m_connections.back();
+}
+
 void tcp_server::start_accept()
 {
     pointer new_connection = tcp_connection::create( m_ctx );
@@ -190,7 +200,7 @@ void tcp_server::accept_handler( tcp_connection::ptr connection,
     m_connections.push_back( connection );
     start_accept();
 
-    m_observer->on_connection();
+    m_observer->on_connection(connection);
 }
 
 //----------------------------------------------------------------------------------- CLIENT
@@ -223,12 +233,12 @@ void tcp_client::connect( std::string const& host_addr, uint16_t port )
 }
 
 void tcp_client::connected_handler(
-        tcp_connection::ptr, const boost::system::error_code& err )
+        tcp_connection::ptr connection, const boost::system::error_code& err )
 {
     if ( err ) { errpost_return( err ); }
-    m_connection->listen();
 
-    m_observer->on_connection();
+    m_connection->listen();
+    m_observer->on_connection(connection);
 }
 
 // ---------------------------------------------------------------------------------- OBSERVERS
@@ -241,17 +251,17 @@ sc_observer::sc_observer(pyrobject* object,
 
 }
 
-void sc_observer::on_connection()
+void sc_observer::on_connection(netobject::ptr obj)
 {
 
 }
 
-void sc_observer::on_disconnection()
+void sc_observer::on_disconnection(netobject::ptr obj)
 {
 
 }
 
-void sc_observer::on_data(bytearray data)
+void sc_observer::on_data(netobject::ptr obj, bytearray data)
 {
 
 }
@@ -261,20 +271,18 @@ void sc_observer::on_data(bytearray data)
 hwebsocket_connection::hwebsocket_connection(tcp_connection::ptr con)
     : m_tcp_connection(con)
 {
-    std::function<void(bytearray)> dfunc =
+    std::function<void(netobject::ptr, bytearray)> dfunc =
             std::bind( &hwebsocket_connection::on_tcp_data, this,
-                      std::placeholders::_1 );
+                      std::placeholders::_2 );
 
     auto observer = ws_observer::ptr( new ws_observer );
     observer->set_data_callback( dfunc );
-    m_tcp_connection->set_observer( observer );
-
-    // send handshake request
+    m_tcp_connection->set_observer( observer );        
 }
 
-void hwebsocket_connection::on_tcp_data(bytearray data)
+void hwebsocket_connection::on_tcp_data(netobject::ptr obj, bytearray data)
 {
-    m_observer->on_data( data );
+    m_observer->on_data(obj, data);
 }
 
 void hwebsocket_connection::write_text(std::string const& text)
@@ -299,11 +307,6 @@ void hwebsocket_connection::write_osc()
     // call write_binary
 }
 
-void hwebsocket_connection::set_observer(netobserver::ptr observer)
-{
-    m_observer = observer;
-}
-
 // ----
 
 hwebsocket_client::hwebsocket_client(boost::asio::io_context& ctx) :
@@ -324,46 +327,50 @@ hwebsocket_client::hwebsocket_client(boost::asio::io_context& ctx) :
 
 hwebsocket_client::~hwebsocket_client()
 {
-
+    // send close
+    m_connection.reset();
 }
 
-void hwebsocket_client::on_tcp_connected()
+void hwebsocket_client::on_tcp_connected(netobject::ptr object)
 {
     // upgrade tcp_connection to websocket
     m_connection = hwebsocket_connection::ptr(
                 new hwebsocket_connection(m_tcp_client.connection()) );
 
     // set data observer until handshake is accepted
-    std::function<void(bytearray)> dfunc =
+    std::function<void(netobject::ptr, bytearray)> dfunc =
             std::bind( &hwebsocket_client::on_tcp_data, this,
-                      std::placeholders::_1 );
+                      std::placeholders::_2 );
 
     auto observer = ws_observer::ptr( new ws_observer );
     observer->set_data_callback( dfunc );
     m_connection->set_observer( observer );
+
+    // send handshake request
+
+    //m_connection->write_raw();
 }
 
-void hwebsocket_client::on_tcp_data( bytearray data )
+void hwebsocket_client::on_tcp_data(netobject::ptr object, bytearray data )
 {
     std::string str(data.begin(), data.end());
 
     if( str.find( "WebSocket-Sec-Accept" ) != std::string::npos )
     {
-        // check accept key
+        // check and validate accept key
 
 
         // sc-observer
-        m_observer->on_connection();
-        m_connection->set_observer( m_observer );
+        m_observer->on_connection(boost::make_shared<netobject>(this));
+        m_connection->set_observer(m_observer);
     }
 
 }
 
-void hwebsocket_client::on_tcp_disconnected()
+void hwebsocket_client::on_tcp_disconnected(netobject::ptr)
 {
-
     m_connection.reset();
-    m_observer->on_disconnection();
+    m_observer->on_disconnection(boost::make_shared<netobject>(this));
 }
 
 // ----
@@ -371,27 +378,38 @@ void hwebsocket_client::on_tcp_disconnected()
 hwebsocket_server::hwebsocket_server(boost::asio::io_context& ctx, uint16_t port) :
     m_tcp_server(ctx, port)
 {
-    std::function<void()> cfunc =
-            std::bind( &hwebsocket_server::on_new_tcp_connection, this );
+    std::function<void(netobject::ptr)> cfunc =
+            std::bind( &hwebsocket_server::on_new_tcp_connection,
+                       this, std::placeholders::_1 );
 
-    std::function<void()> dfunc =
-            std::bind( &hwebsocket_server::on_tcp_disconnection, this );
+    std::function<void(netobject::ptr)> dfunc =
+            std::bind( &hwebsocket_server::on_tcp_disconnection,
+                       this, std::placeholders::_1);
 
     auto observer = ws_observer::ptr( new ws_observer );
     observer->set_connected_callback( cfunc );
     observer->set_disconnected_callback( dfunc );
 
     m_tcp_server.set_observer( observer );
+}
+
+void hwebsocket_server::on_new_tcp_connection(netobject::ptr object)
+{
+    // get connection
+    tcp_connection::ptr connection(object.get());
+    auto observer = ws_observer::ptr( new ws_observer );
+
+    // observe connection's incoming tcp_data
+    // look for a websocket handshake pattern
 
 }
 
-void hwebsocket_server::on_new_tcp_connection()
+void hwebsocket_server::on_tcp_data(netobject::ptr object, bytearray data)
 {
 
-
 }
 
-void hwebsocket_server::on_tcp_disconnection()
+void hwebsocket_server::on_tcp_disconnection(netobject::ptr object)
 {
 
 }
