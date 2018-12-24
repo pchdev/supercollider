@@ -9,7 +9,12 @@ WebSocketConnection
 	var httpMessageCallback;
 
 	*new { |ptr, addr, port|
-		^this.newCopyArgs(ptr, addr, port)
+		^this.newCopyArgs(ptr, addr, port).prmBind();
+	}
+
+	prmBind {
+		_WebSocketConnectionBind
+		^this.primitiveFailed
 	}
 
 	onTextMessageReceived { |callback|

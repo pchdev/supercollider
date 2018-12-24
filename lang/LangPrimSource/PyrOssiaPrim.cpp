@@ -566,5 +566,5 @@ void ossia::supercollider::initialize()
     definePrimitive( base, index++, "_WebSocketClientFree", pyr_ws_client_free, 1, 0);
 
     definePrimitive( base, index++, "_WebSocketServerInstantiateRun", pyr_ws_server_instantiate_run, 2, 0);
-    definePrimitive( base, index++, "_WebSocketServerInstantiateRun", pyr_ws_server_free, 1, 0);
+    definePrimitive( base, index++, "_WebSocketServerFree", pyr_ws_server_free, 1, 0);
 }
