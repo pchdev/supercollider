@@ -49,7 +49,7 @@ class netobject
 {
     public:
     using ptr = boost::shared_ptr<netobject>;
-    void set_observer( boost::shared_ptr<netobserver> observer )  {
+    virtual void set_observer( boost::shared_ptr<netobserver> observer )  {
         m_observer = observer;
     }
 
@@ -96,16 +96,16 @@ class ws_observer : public netobserver
 template<typename T> class sc_observer : public netobserver
 {
     public:
-    sc_observer(
-        pyrslot* slot,
-        T* object,
-        std::string csym,
-        std::string dsym,
-        std::string datasym );
+    sc_observer( pyrslot* slot, T* object );
 
     virtual void on_connection(netobject::ptr) override;
     virtual void on_disconnection(netobject::ptr) override;
     virtual void on_data(netobject::ptr, bytearray) override;
+
+    void on_binary_data(netobject::ptr, bytearray);
+    void on_text_data(netobject::ptr, std::string);
+    void on_http_data(netobject::ptr, std::string);
+    void on_osc_data(netobject::ptr, std::string);
 
     private:
     pyrobject* m_object;
@@ -184,10 +184,10 @@ class hwebsocket_connection : public netobject
     using ptr = boost::shared_ptr<hwebsocket_connection>;
     hwebsocket_connection( tcp_connection::ptr con );
 
-    void write_text     ( std::string const& text );
-    void write_binary   ( bytearray const& data );
-    void write_raw      ( bytearray const& data );
-    void write_osc      ( );
+    void write_text     ( std::string text );
+    void write_binary   ( bytearray data );
+    void write_raw      ( bytearray data );
+    void write_osc      ( std::string address);
 
     void on_tcp_data    ( netobject::ptr, bytearray data );
 

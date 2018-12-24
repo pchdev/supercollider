@@ -4,7 +4,6 @@
 #include <iostream>
 #include <boost/thread.hpp>
 #include <QCryptographicHash>
-#include <QTcpSocket>
 
 #define STRMAXLE 4096
 #define errpost_return(err) std::cout << err.message() << std::endl; return;
@@ -38,6 +37,7 @@ template<> inline void ossia::supercollider::write(pyrslot* s, float v)  { SetFl
 template<> inline void ossia::supercollider::write(pyrslot* s, double v) { SetFloat  ( s, v );   }
 template<> inline void ossia::supercollider::write(pyrslot* s, void* v)  { SetPtr    ( s, v );   }
 template<> inline void ossia::supercollider::write(pyrslot* s, bool v)   { SetBool   ( s, v );   }
+template<> inline void ossia::supercollider::write(pyrslot* s, pyrobject* o ) { SetObject(s, o); }
 
 template<> inline void ossia::supercollider::write(pyrslot* s, std::string v)
 {
@@ -67,9 +67,9 @@ template<typename T> void ossia::supercollider::sendback_object(
         auto g = gMainVMGlobals;
         g->canCallOS = true;
 
-        ++g->sp; SetObject  ( g->sp, object );
-        ++g->sp; SetPtr     ( g->sp, pointer );
-        runInterpreter      ( g, getsym(sym), 2 );
+        ++g->sp; write<pyrobject*>(g->sp, object);
+        ++g->sp; write<void*>(g->sp, pointer);
+        runInterpreter(g, getsym(sym), 2);
 
         g->canCallOS = false;
     }
@@ -120,21 +120,6 @@ void tcp_connection::read_handler(const boost::system::error_code& err, size_t n
     m_observer->on_data( netobject::ptr(this),
         bytearray(chunk.begin(), chunk.end()));
 
-    gLangMutex.lock();
-
-    if ( compiledOK )
-    {
-        auto g = gMainVMGlobals;
-        g->canCallOS = true;
-
-        ++g->sp; SetObject( g->sp, m_object );
-        ++g->sp; ossia::supercollider::write( g->sp, chunk );
-        runInterpreter(g, getsym( "pvOnDataReceived" ), 2);
-
-        g->canCallOS = false;
-    }
-
-    gLangMutex.unlock();
     listen();
 }
 
@@ -244,25 +229,42 @@ void tcp_client::connected_handler(
 
 // ---------------------------------------------------------------------------------- OBSERVERS
 
-template<typename T> sc_observer<T>::sc_observer(pyrslot *slot, T* object,
-    std::string csym, std::string dsym, std::string datasym )
+template<typename T> sc_observer<T>::sc_observer(pyrslot *slot, T* object)
 {
     register_object<T>(slot, object, 0);
+    m_object = slotRawObject(slot);
 }
 
-template<> void sc_observer<hwebsocket_client>::on_connection(netobject::ptr obj)
+template<typename T> void sc_observer<T>::on_connection(netobject::ptr obj)
 {
-
+    auto con = dynamic_cast<hwebsocket_connection*>(obj.get());
+    sendback_object<hwebsocket_connection>(m_object, con, "pvOnConnection");
 }
 
 template<typename T> void sc_observer<T>::on_disconnection(netobject::ptr obj)
 {
-
+    auto con = dynamic_cast<hwebsocket_connection*>(obj.get());
+    sendback_object<hwebsocket_connection>(m_object, con, "pvOnDisconnection");
 }
 
 template<typename T> void sc_observer<T>::on_data(netobject::ptr obj, bytearray data)
 {
 
+}
+
+void ws_observer::on_connection(netobject::ptr con)
+{
+    m_connected_func(con);
+}
+
+void ws_observer::on_disconnection(netobject::ptr con)
+{
+    m_disconnected_func(con);
+}
+
+void ws_observer::on_data(netobject::ptr obj, bytearray data)
+{
+    m_data_func(obj, data);
 }
 
 // ---------------------------------------------------------------------------------- WEBSOCKET
@@ -281,26 +283,30 @@ hwebsocket_connection::hwebsocket_connection(tcp_connection::ptr con)
 
 void hwebsocket_connection::on_tcp_data(netobject::ptr obj, bytearray data)
 {
+    // parse (binary, text, osc, ...)
     m_observer->on_data(obj, data);
 }
 
-void hwebsocket_connection::write_text(std::string const& text)
+void hwebsocket_connection::write_text(std::string text)
+{
+    // encode and send
+
+
+
+}
+
+void hwebsocket_connection::write_binary(bytearray data)
 {
 
 }
 
-void hwebsocket_connection::write_binary(bytearray const& data)
-{
-
-}
-
-void hwebsocket_connection::write_raw(bytearray const& data)
+void hwebsocket_connection::write_raw(bytearray data)
 {
     std::string str( data.begin(), data.end() );
     m_tcp_connection->write( str );
 }
 
-void hwebsocket_connection::write_osc()
+void hwebsocket_connection::write_osc(std::string address)
 {
     // get encoded binary
     // call write_binary
@@ -329,6 +335,16 @@ hwebsocket_client::hwebsocket_client(boost::asio::io_context& ctx) :
 hwebsocket_client::~hwebsocket_client()
 {
     // send close
+    m_connection.reset();
+}
+
+void hwebsocket_client::connect(std::string addr, uint16_t port)
+{
+    m_tcp_client.connect(addr, port);
+}
+
+void hwebsocket_client::disconnect()
+{
     m_connection.reset();
 }
 
@@ -361,7 +377,7 @@ void hwebsocket_client::on_tcp_data(netobject::ptr, bytearray data )
 
 
         // sc-observer
-        m_observer->on_connection(boost::make_shared<netobject>(this));
+        m_observer->on_connection(hwebsocket_client::ptr(this));
         m_connection->set_observer(m_observer);
     }
 
@@ -370,7 +386,7 @@ void hwebsocket_client::on_tcp_data(netobject::ptr, bytearray data )
 void hwebsocket_client::on_tcp_disconnected(netobject::ptr)
 {
     m_connection.reset();
-    m_observer->on_disconnection(boost::make_shared<netobject>(this));
+    m_observer->on_disconnection(netobject::ptr(this));
 }
 
 // ----
@@ -393,10 +409,16 @@ hwebsocket_server::hwebsocket_server(boost::asio::io_context& ctx, uint16_t port
     m_tcp_server.set_observer( observer );
 }
 
+hwebsocket_server::~hwebsocket_server()
+{
+    for ( auto& connection : m_connections )
+          connection.reset();
+}
+
 void hwebsocket_server::on_new_tcp_connection(netobject::ptr object)
 {
     // get connection
-    tcp_connection::ptr connection(object.get());
+    tcp_connection::ptr connection(dynamic_cast<tcp_connection*>(object.get()));
     auto observer = ws_observer::ptr( new ws_observer );
 
     std::function<void(netobject::ptr, bytearray)> dfunc =
@@ -420,7 +442,7 @@ void hwebsocket_server::on_tcp_data(netobject::ptr object, bytearray data)
 
         // upgrade tcp_connection to websocket
 
-        tcp_connection::ptr connection(object.get());
+        tcp_connection::ptr connection(dynamic_cast<tcp_connection*>(object.get()));
         auto ptr = hwebsocket_connection::ptr(new hwebsocket_connection(connection));
         m_connections.push_back(ptr);
 
@@ -440,6 +462,8 @@ int pyr_ws_con_bind(VMGlobals* g, int)
     auto con = get_object<hwebsocket_connection>(g->sp, 0);
     auto obs = new sc_observer<hwebsocket_connection>(g->sp, con);
 
+    con->set_observer(netobserver::ptr(obs));
+
     return errNone;
 }
 
@@ -454,7 +478,7 @@ int pyr_ws_con_write_text(VMGlobals* g, int)
 int pyr_ws_con_write_osc(VMGlobals* g, int)
 {
     auto con = get_object<hwebsocket_connection>(g->sp-2, 0);
-    con->write_osc(); // !TODO
+    //con->write_osc(); // !TODO
 
     return errNone;
 }
@@ -478,8 +502,7 @@ int pyr_ws_con_write_raw(VMGlobals* g, int)
 int pyr_ws_client_create(VMGlobals* g, int)
 {
     auto client = new hwebsocket_client( ioService );
-    auto observer = new sc_observer<hwebsocket_client>(
-        g->sp, client, "pvOnConnected", "pvOnDisconnected", "");
+    auto observer = new sc_observer<hwebsocket_client>(g->sp, client);
 
     client->set_observer(netobserver::ptr( observer ));
 
@@ -488,7 +511,9 @@ int pyr_ws_client_create(VMGlobals* g, int)
 
 int pyr_ws_client_connect(VMGlobals* g, int)
 {
-    auto client = get_object<hwebsocket_client>(g->sp, 0);
+    auto client = get_object<hwebsocket_client>(g->sp-2, 0);
+    client->connect(read<std::string>(g->sp-1), read<int>(g->sp));
+
     return errNone;
 }
 
@@ -501,6 +526,8 @@ int pyr_ws_client_disconnect(VMGlobals* g, int)
 int pyr_ws_client_free(VMGlobals* g, int)
 {
     delete get_object<hwebsocket_client>(g->sp, 0);
+    free(g, g->sp);
+
     return errNone;
 }
 
@@ -509,13 +536,16 @@ int pyr_ws_client_free(VMGlobals* g, int)
 int pyr_ws_server_instantiate_run(VMGlobals* g, int)
 {
     auto server = new hwebsocket_server(ioService, read<int>(g->sp));
+    auto observer = new sc_observer<hwebsocket_server>(g->sp-1, server);
 
     return errNone;
 }
 
 int pyr_ws_server_free(VMGlobals* g, int)
 {
-    auto server = get_object<hwebsocket_server>(g->sp, 0);
+    delete get_object<hwebsocket_server>(g->sp, 0);
+    free(g, g->sp);
+
     return errNone;
 }
 
