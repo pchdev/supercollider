@@ -34,210 +34,243 @@ using vmglobals = VMGlobals;
 
 #define TCP_BUFSIZE 32768
 
-namespace ossia
+namespace sclang
 {
-namespace supercollider
-{
+template<typename T> void return_data   ( pyrobject* object, T data, const char* sym );
+template<typename T> void write         ( pyrslot* s, T object);
+template<typename T> void write         ( pyrslot* s, T object, uint16_t index );
+template<typename T> T read             ( pyrslot* s, uint16_t index );
+template<typename T> T read             ( pyrslot* s );
+template<typename T> void free          ( pyrslot* s, T object );
+}
 
-void initialize();
+namespace network
+{
 
 using bytearray = std::vector<uint8_t>;
+void initialize();
 
-class netobserver;
+enum class data_t
+{
+    raw = 0,
+    http = 1,
+    ws_text = 2,
+    ws_binary = 3,
+    ws_osc = 4
+};
 
-class netobject
+// ideally, having a signal/slot system would be nice
+// e.g. boost's or nano
+
+class observer;
+class object
 {
     public:
-    using ptr = boost::shared_ptr<netobject>;
-    virtual void set_observer( boost::shared_ptr<netobserver> observer )  {
-        m_observer = observer;
+    using ptr = boost::shared_ptr<object>;
+    virtual void set_observer( boost::shared_ptr<observer> obs )  {
+        m_observer = obs;
     }
 
     protected:
-    boost::shared_ptr<netobserver> m_observer;
+    boost::shared_ptr<observer> m_observer;
 };
 
-class netobserver
+class observer
 {
     public:
-    using ptr = boost::shared_ptr<netobserver>;
+    using ptr = boost::shared_ptr<observer>;
 
-    virtual void on_connection(netobject::ptr) = 0;
-    virtual void on_disconnection(netobject::ptr) = 0;
-    virtual void on_data(netobject::ptr, bytearray) = 0;
+    virtual void on_connection(object::ptr) = 0;
+    virtual void on_disconnection(object::ptr) = 0;
+    virtual void on_data(object::ptr, data_t, bytearray) = 0;
 };
 
-class ws_observer : public netobserver
+class generic_observer : public network::observer
 {
     public:
-    using ptr = boost::shared_ptr<ws_observer>;
+    using ptr = boost::shared_ptr<generic_observer>;
 
-    ws_observer() { }
-    virtual void on_connection(netobject::ptr) override;
-    virtual void on_disconnection(netobject::ptr) override;
-    virtual void on_data(netobject::ptr, bytearray data) override;
+    generic_observer() { }
+    virtual void on_connection(object::ptr) override;
+    virtual void on_disconnection(object::ptr) override;
+    virtual void on_data(object::ptr, data_t, bytearray data) override;
 
-    void set_connected_callback(std::function<void(netobject::ptr)> func) {
-        m_connected_func = func;
-    }
-    void set_disconnected_callback(std::function<void(netobject::ptr)> func) {
-        m_disconnected_func = func;
-    }
-    void set_data_callback(std::function<void(netobject::ptr, bytearray)> func) {
-        m_data_func = func;
-    }
-
-    private:
-    std::function<void(netobject::ptr)> m_connected_func;
-    std::function<void(netobject::ptr)> m_disconnected_func;
-    std::function<void(netobject::ptr, bytearray)> m_data_func;
+    std::function<void(network::object::ptr)> on_connection_f;
+    std::function<void(network::object::ptr)> on_disconnection_f;
+    std::function<void(network::object::ptr, data_t, bytearray)> on_data_f;
 };
 
-template<typename T> class sc_observer : public netobserver
+namespace tcp
+{
+
+class connection :
+        public network::object,
+        public boost::enable_shared_from_this<connection>
 {
     public:
-    sc_observer( pyrslot* slot, T* object );
-
-    virtual void on_connection(netobject::ptr) override;
-    virtual void on_disconnection(netobject::ptr) override;
-    virtual void on_data(netobject::ptr, bytearray) override;
-
-    void on_binary_data(netobject::ptr, bytearray);
-    void on_text_data(netobject::ptr, std::string);
-    void on_http_data(netobject::ptr, std::string);
-    void on_osc_data(netobject::ptr, std::string);
-
-    private:
-    pyrobject* m_object;
-    std::string m_csym;
-    std::string m_dsym;
-    std::string m_datasym;
-};
-
-class tcp_connection :  public netobject,
-                        public boost::enable_shared_from_this<tcp_connection>
-{
-    public:
-
-    using  ptr = boost::shared_ptr<tcp_connection>;
+    using ptr = boost::shared_ptr<connection>;
     static ptr create(boost::asio::io_context& ioctx);
-    tcp_connection( boost::asio::io_context& ctx );
+    connection( boost::asio::io_context& ctx );
 
-    tcp::socket& socket() { return m_socket; }
-
+    boost::asio::ip::tcp::socket& socket() { return m_socket; }
     void write(const std::string& str);
     void listen();
-
     std::string remote_address() const;
     uint16_t remote_port() const;
 
     private:
     void read_handler(const boost::system::error_code& err, size_t nbytes);
     void write_handler(const boost::system::error_code& err, size_t nbytes);
-    tcp::socket m_socket;
-    std::array<char, TCP_BUFSIZE> m_netbuffer;    
+    boost::asio::ip::tcp::socket m_socket;
+    std::array<char, TCP_BUFSIZE> m_netbuffer;
 };
 
-class tcp_client : public netobject, public boost::enable_shared_from_this<tcp_client>
+class client :
+        public object,
+        public boost::enable_shared_from_this<client>
 {
     public:
 
-    using ptr = boost::shared_ptr<tcp_client>;
+    using ptr = boost::shared_ptr<client>;
     static ptr create(boost::asio::io_context& ctx);
-    tcp_client(boost::asio::io_context& ctx);
+    client(boost::asio::io_context& ctx);
 
     void connect(const std::string& host_addr, uint16_t host_port );
-    tcp_connection::ptr connection() { return m_connection; }
+    connection::ptr connection() { return m_connection; }
 
-    ~tcp_client();
+    ~client();
 
     private:
-    void connected_handler(tcp_connection::ptr con, const boost::system::error_code& err );
-    tcp_connection::ptr m_connection;
+    void connected_handler(connection::ptr con, const boost::system::error_code& err );
+    connection::ptr m_connection;
     boost::asio::io_context& m_ctx;
 };
 
-class tcp_server : public netobject
+class server : public object
 {
     public:
-    using ptr = boost::shared_ptr<tcp_server>;
-    static tcp_server::ptr create(boost::asio::io_context &ctx, uint16_t port);
-    tcp_server(boost::asio::io_context& ctx, uint16_t port);
+    using ptr = boost::shared_ptr<server>;
+    static server::ptr create(boost::asio::io_context &ctx, uint16_t port);
+    server(boost::asio::io_context& ctx, uint16_t port);
+    connection::ptr operator[](uint16_t index);
+    connection::ptr last();
 
-    tcp_connection::ptr operator[](uint16_t index);
-    tcp_connection::ptr last();
-
-    ~tcp_server();
+    ~server();
 
     private:
     void start_accept();
-    void accept_handler(tcp_connection::ptr connection, const boost::system::error_code& err);
+    void accept_handler(connection::ptr connection, const boost::system::error_code& err);
 
     boost::asio::io_context& m_ctx;
-    tcp::acceptor m_acceptor;
-    std::vector<tcp_connection::ptr> m_connections;
+    boost::asio::ip::tcp::acceptor m_acceptor;
+    std::vector<connection::ptr> m_connections;
 };
 
-class hwebsocket_connection : public netobject
+}
+
+namespace http
+{
+
+class message
 {
     public:
-    using ptr = boost::shared_ptr<hwebsocket_connection>;
-    hwebsocket_connection( tcp_connection::ptr con );
+    enum class type
+    {
+
+    };
+
+};
+
+}
+
+namespace websocket
+{
+class message
+{
+    public:
+
+    static message decode(bytearray data);
+    static message encode(bytearray data);
+    static message encode(std::string data);
+    message(bytearray data);
+
+    private:
+};
+
+template<typename T> class connection : public network::object
+{
+    public:
+    using ptr = boost::shared_ptr<connection>;
+    connection( tcp::connection::ptr con );
 
     void write_text     ( std::string text );
     void write_binary   ( bytearray data );
     void write_raw      ( bytearray data );
     void write_osc      ( std::string address);
 
-    void on_tcp_data    ( netobject::ptr, bytearray data );
+    void on_tcp_data    ( object::ptr, data_t t, bytearray data );
 
     private:
-    tcp_connection::ptr m_tcp_connection;
+    bool m_upgraded = false;
+    tcp::connection::ptr m_tcp_connection;
 };
 
-class hwebsocket_client : public netobject
+class client : public network::object
 {
     public:
-    hwebsocket_client(boost::asio::io_context& ctx);
-    ~hwebsocket_client();
-
-    hwebsocket_connection::ptr connection();
+    client(boost::asio::io_context& ctx);
+    websocket::connection<websocket::client>::ptr connection();
     void connect(std::string addr, uint16_t port);
     void disconnect();
 
-    void on_tcp_data(netobject::ptr, bytearray data);
-    void on_tcp_connected(netobject::ptr);
-    void on_tcp_disconnected(netobject::ptr);
+    void on_tcp_data(object::ptr, bytearray data);
+    void on_tcp_connected(object::ptr);
+    void on_tcp_disconnected(object::ptr);
+
+    ~client();
 
     private:
-    tcp_client m_tcp_client;
-    hwebsocket_connection::ptr m_connection;
+    tcp::client m_tcp_client;
+    websocket::connection<websocket::client>::ptr m_connection;
 };
 
-class hwebsocket_server : public netobject
+class server : public object
 {
     public:
-    hwebsocket_server(boost::asio::io_context& ctx, uint16_t port);
-    hwebsocket_connection::ptr operator[](uint16_t index);
+    server(boost::asio::io_context& ctx, uint16_t port);
+    websocket::connection<websocket::server>::ptr operator[](uint16_t index);
 
-    void on_tcp_data(netobject::ptr, bytearray);
-    void on_new_tcp_connection(netobject::ptr);
-    void on_tcp_disconnection(netobject::ptr);
+    void on_tcp_data(object::ptr, bytearray);
+    void on_new_tcp_connection(object::ptr);
+    void on_tcp_disconnection(object::ptr);
 
-    ~hwebsocket_server();
+    ~server();
 
     private:
-    std::vector<hwebsocket_connection::ptr> m_connections;
-    tcp_server m_tcp_server;
+    std::vector<websocket::connection<websocket::server>::ptr> m_connections;
+    tcp::server m_tcp_server;
+};
+}
+
+template<typename Handler, typename Connection>
+class sc_observer : public network::observer
+{
+    public:
+    sc_observer( pyrslot* slot, boost::shared_ptr<Handler> object );
+
+    virtual void on_connection(object::ptr) override;
+    virtual void on_disconnection(object::ptr) override;
+    virtual void on_data(object::ptr, data_t, bytearray) override;
+
+    private:
+    void on_binary_data(boost::shared_ptr<Connection>, bytearray);
+    void on_text_data(boost::shared_ptr<Connection>, std::string);
+    void on_http_data(boost::shared_ptr<Connection>, std::string);
+    void on_osc_data(boost::shared_ptr<Connection>, std::string);
+
+    pyrobject* m_pyrobject;
+    boost::shared_ptr<Handler> m_handler;
+    boost::shared_ptr<Connection> m_connection;
 };
 
-template<typename T> void sendback_object   ( pyrobject* object, T* pointer, const char* sym );
-template<typename T> void register_object   ( pyrslot* s, T* object, uint16_t v_index );
-template<typename T> T* get_object          ( pyrslot* s, uint16_t v_index );
-template<typename T> T read                 ( pyrslot* s );
-template<typename T> void write             ( pyrslot* s, T );
-
-void free( vmglobals *g, pyrslot* s );
-
-}
 }
