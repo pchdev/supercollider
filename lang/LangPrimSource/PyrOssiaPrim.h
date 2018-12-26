@@ -37,6 +37,7 @@ using vmglobals = VMGlobals;
 namespace sclang
 {
 template<typename T> void return_data   ( pyrobject* object, T data, const char* sym );
+template<typename T> void return_data   ( pyrobject* object, std::vector<T>, const char* sym);
 template<typename T> void write         ( pyrslot* s, T object);
 template<typename T> void write         ( pyrslot* s, T object, uint16_t index );
 template<typename T> T read             ( pyrslot* s, uint16_t index );
@@ -136,7 +137,7 @@ class client :
     client(boost::asio::io_context& ctx);
 
     void connect(const std::string& host_addr, uint16_t host_port );
-    connection::ptr connection() { return m_connection; }
+    tcp::connection::ptr connection() { return m_connection; }
 
     ~client();
 
@@ -171,20 +172,15 @@ class server : public object
 namespace http
 {
 
-class message
-{
-    public:
-    enum class type
-    {
-
-    };
-
-};
+// HTTP managed by SC ?
 
 }
 
 namespace websocket
 {
+static std::string generate_sec_key();
+static std::string generate_accept_key(std::string const& sec_key);
+
 class message
 {
     public:
@@ -192,12 +188,14 @@ class message
     static message decode(bytearray data);
     static message encode(bytearray data);
     static message encode(std::string data);
+
+    template<typename T> T read() const;
     message(bytearray data);
 
     private:
 };
 
-template<typename T> class connection : public network::object
+class connection : public network::object
 {
     public:
     using ptr = boost::shared_ptr<connection>;
@@ -219,11 +217,11 @@ class client : public network::object
 {
     public:
     client(boost::asio::io_context& ctx);
-    websocket::connection<websocket::client>::ptr connection();
+    websocket::connection::ptr connection();
     void connect(std::string addr, uint16_t port);
     void disconnect();
 
-    void on_tcp_data(object::ptr, bytearray data);
+    void on_tcp_data(object::ptr, data_t, bytearray data);
     void on_tcp_connected(object::ptr);
     void on_tcp_disconnected(object::ptr);
 
@@ -231,46 +229,47 @@ class client : public network::object
 
     private:
     tcp::client m_tcp_client;
-    websocket::connection<websocket::client>::ptr m_connection;
+    websocket::connection::ptr m_connection;
 };
 
 class server : public object
 {
     public:
     server(boost::asio::io_context& ctx, uint16_t port);
-    websocket::connection<websocket::server>::ptr operator[](uint16_t index);
+    websocket::connection::ptr operator[](uint16_t index);
 
-    void on_tcp_data(object::ptr, bytearray);
+    void on_tcp_data(object::ptr, data_t, bytearray);
     void on_new_tcp_connection(object::ptr);
     void on_tcp_disconnection(object::ptr);
 
     ~server();
 
     private:
-    std::vector<websocket::connection<websocket::server>::ptr> m_connections;
+    std::vector<websocket::connection::ptr> m_connections;
     tcp::server m_tcp_server;
 };
 }
 
-template<typename Handler, typename Connection>
+template<typename T>
 class sc_observer : public network::observer
 {
     public:
-    sc_observer( pyrslot* slot, boost::shared_ptr<Handler> object );
+    using ptr = boost::shared_ptr<sc_observer<T>>;
+    sc_observer( pyrslot* slot, T* obj);
+
+    static boost::shared_ptr<sc_observer<T>> create(pyrslot* s, T* obj);
 
     virtual void on_connection(object::ptr) override;
     virtual void on_disconnection(object::ptr) override;
     virtual void on_data(object::ptr, data_t, bytearray) override;
 
     private:
-    void on_binary_data(boost::shared_ptr<Connection>, bytearray);
-    void on_text_data(boost::shared_ptr<Connection>, std::string);
-    void on_http_data(boost::shared_ptr<Connection>, std::string);
-    void on_osc_data(boost::shared_ptr<Connection>, std::string);
+    void on_binary_data(boost::shared_ptr<T>, bytearray);
+    void on_text_data(boost::shared_ptr<T>, std::string);
+    void on_http_data(boost::shared_ptr<T>, std::string);
+    void on_osc_data(boost::shared_ptr<T>, std::string);
 
     pyrobject* m_pyrobject;
-    boost::shared_ptr<Handler> m_handler;
-    boost::shared_ptr<Connection> m_connection;
 };
 
 }

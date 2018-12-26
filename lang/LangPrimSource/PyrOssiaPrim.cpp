@@ -38,7 +38,8 @@ template<> inline void sclang::write(pyrslot* s, float v)        { SetFloat  ( s
 template<> inline void sclang::write(pyrslot* s, double v)       { SetFloat  ( s, v );   }
 template<> inline void sclang::write(pyrslot* s, void* v)        { SetPtr    ( s, v );   }
 template<> inline void sclang::write(pyrslot* s, bool v)         { SetBool   ( s, v );   }
-template<> inline void sclang::write(pyrslot* s, pyrobject* o )  { SetObject(s, o);      }
+template<> inline void sclang::write(pyrslot* s, pyrobject* o )  { SetObject ( s, o );   }
+template<typename T> inline void sclang::write(pyrslot* s, T o)  { SetPtr    ( s, o );   }
 
 template<> inline void sclang::write(pyrslot* s, std::string v)
 {
@@ -66,10 +67,36 @@ template<typename T> void sclang::return_data(pyrobject* object, T data, const c
         auto g = gMainVMGlobals;
         g->canCallOS = true;
 
-        ++g->sp; write<pyrobject*>(g->sp, object);
-        ++g->sp; write<T>(g->sp, data);
+        ++g->sp; sclang::write<pyrobject*>(g->sp, object);
+        ++g->sp; sclang::write<T>(g->sp, data);
         runInterpreter(g, getsym(sym), 2);
 
+        g->canCallOS = false;
+    }
+
+    gLangMutex.unlock();
+}
+
+template<typename T>
+void sclang::return_data(pyrobject* object, std::vector<T> data, const char* sym)
+{
+    // TODO
+    gLangMutex.lock();
+
+    if ( compiledOK )
+    {
+        auto g = gMainVMGlobals;
+        g->canCallOS = true;
+
+        ++g->sp; sclang::write<pyrobject*>(g->sp, object);
+
+        for ( const auto& d : data )
+        {
+            ++g->sp;
+            sclang::write<T>(g->sp, d);
+        }
+
+        runInterpreter(g, getsym(sym), data.size()+1);
         g->canCallOS = false;
     }
 
@@ -118,7 +145,8 @@ void connection::read_handler(const boost::system::error_code& err, size_t nbyte
     if ( err ) { errpost_return( err ); }
     std::string chunk = m_netbuffer.data();
 
-    m_observer->on_data(network::object::ptr(this),
+    m_observer->on_data(
+        network::object::ptr(this), data_t::raw,
         bytearray(chunk.begin(), chunk.end()));
 
     listen();
@@ -231,61 +259,75 @@ void client::connected_handler(
 // ---------------------------------------------------------------------------------- OBSERVERS
 using namespace network;
 
-template<typename Handler, typename Connection>
-sc_observer<Handler, Connection>::sc_observer(pyrslot *slot, boost::shared_ptr<Handler> hdl)
+void generic_observer::on_connection(object::ptr p)
 {
-    sclang::write<Handler>(slot, hdl, 0);
+    on_connection_f(p);
+}
+
+void generic_observer::on_disconnection(object::ptr p)
+{
+    on_disconnection_f(p);
+}
+
+void generic_observer::on_data(object::ptr p, data_t t, bytearray d)
+{
+    on_data_f(p, t, d);
+}
+
+template<typename T> boost::shared_ptr<sc_observer<T>> create(pyrslot* s, T* o)
+{
+    return sc_observer<T>::ptr(new sc_observer<T>(s, o));
+}
+
+template<typename T> sc_observer<T>::sc_observer(pyrslot *slot, T* obj)
+{
+    sclang::write<T*>(slot, obj, 0);
     m_pyrobject = slotRawObject(slot);
-
-    m_handler = hdl;
 }
 
-template<typename Handler, typename Connection>
-void sc_observer<Handler, Connection>::on_connection(object::ptr obj)
+template<typename T> void sc_observer<T>::on_connection(object::ptr obj)
 {
-    auto con = dynamic_cast<websocket::connection<Handler>*>(obj.get());
-    sclang::return_data<websocket::connection<Handler>*>(m_pyrobject, con, "pvOnConnection");
+    auto con = dynamic_cast<T*>(obj.get());
+    sclang::return_data<T*>(m_pyrobject, con, "pvOnConnection");
 }
 
-template<typename Handler, typename Connection>
-void sc_observer<Handler, Connection>::on_disconnection(object::ptr obj)
+template<typename T> void sc_observer<T>::on_disconnection(object::ptr obj)
 {
-    auto con = dynamic_cast<websocket::connection<Handler>*>(obj.get());
-    sclang::return_data<websocket::connection<Handler>*>(m_pyrobject, con, "pvOnDisconnection");
+    auto con = dynamic_cast<T*>(obj.get());
+    sclang::return_data<T*>(m_pyrobject, con, "pvOnDisconnection");
 }
 
-template<typename Handler, typename Connection>
-void sc_observer<Handler, Connection>::on_data(object::ptr obj, data_t type, bytearray data)
+template<typename T>
+void sc_observer<T>::on_data(object::ptr obj, data_t type, bytearray data)
 {
-    auto con = dynamic_cast<websocket::connection<Handler>*>(obj.get());
+    auto con = dynamic_cast<T*>(obj.get());
 
     if ( type == data_t::http )
-         on_http_data(con, std::string(data.begin(), data.end()));
+         on_http_data(boost::shared_ptr<T>(con), std::string(data.begin(), data.end()));
+
+    else if ( type == data_t::ws_text )
+         on_text_data(boost::shared_ptr<T>(con), std::string(data.begin(), data.end()));
 }
 
-template<typename Handler, typename Connection>
-void sc_observer<Handler, Connection>::on_osc_data(
-        boost::shared_ptr<Connection>, std::string )
+template<typename T> void sc_observer<T>::on_osc_data(boost::shared_ptr<T>, std::string )
 {
     // send back a string address and an array of data
 
 }
 
-template<typename Handler, typename Connection>
-void sc_observer<Handler, Connection>::on_http_data(
-        boost::shared_ptr<Connection>, std::string data )
+template<typename T> void sc_observer<T>::on_http_data(boost::shared_ptr<T>, std::string data )
 {
     gLangMutex.lock();
+
     auto g = gMainVMGlobals;
     ++g->sp; sclang::write<pyrobject*>(g->sp, m_pyrobject);
     ++g->sp; sclang::write<std::string>(g->sp, data);
     runInterpreter(g, getsym("pvOnHTTPMessageReceived"), 2);
+
     gLangMutex.unlock();
 }
 
-template<typename Handler, typename Connection>
-void sc_observer<Handler, Connection>::on_text_data(
-        boost::shared_ptr<Connection>, std::string data )
+template<typename T> void sc_observer<T>::on_text_data(boost::shared_ptr<T>, std::string data )
 {
     gLangMutex.lock();
 
@@ -297,9 +339,7 @@ void sc_observer<Handler, Connection>::on_text_data(
     gLangMutex.unlock();
 }
 
-template<typename Handler, typename Connection>
-void sc_observer<Handler, Connection>::on_binary_data(
-        boost::shared_ptr<Connection>, bytearray )
+template<typename T> void sc_observer<T>::on_binary_data(boost::shared_ptr<T>, bytearray )
 {
     // sendback an int8array ?
     // TODO
@@ -308,11 +348,48 @@ void sc_observer<Handler, Connection>::on_binary_data(
 // ---------------------------------------------------------------------------------- WEBSOCKET
 using namespace network::websocket;
 
-template<typename T> websocket::connection<T>::connection(tcp::connection::ptr con)
+std::string websocket::generate_sec_key()
+{
+    return std::string();
+}
+
+std::string websocket::generate_accept_key(std::string const& sec_key)
+{
+    return std::string();
+}
+
+websocket::message websocket::message::decode(bytearray data)
+{
+
+}
+
+websocket::message websocket::message::encode(bytearray data)
+{
+
+}
+
+websocket::message websocket::message::encode(std::string data)
+{
+
+}
+
+websocket::message::message(bytearray data)
+{
+
+}
+
+template<typename T> T websocket::message::read() const
+{
+
+}
+
+//------------
+
+websocket::connection::connection(tcp::connection::ptr con)
     : m_tcp_connection(con)
 {
     std::function<void(object::ptr, data_t, bytearray)> dfunc =
-            std::bind( &websocket::connection<T>::on_tcp_data, this,
+            std::bind( &websocket::connection::on_tcp_data, this,
                        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3 );
 
     auto observer = generic_observer::ptr( new generic_observer );
@@ -321,49 +398,31 @@ template<typename T> websocket::connection<T>::connection(tcp::connection::ptr c
     m_tcp_connection->set_observer( observer );        
 }
 
-template<typename T> void websocket::connection<T>::on_tcp_data(
-        object::ptr obj, data_t t, bytearray data )
+void websocket::connection::on_tcp_data(
+    object::ptr obj, data_t t, bytearray data )
 {
-    if ( !m_upgraded )
-    {
-        m_observer->on_data(obj, t, data);
-        return;
-    }
-
-    auto sc_obs = dynamic_cast<sc_observer<T, websocket::connection<T>>*>(m_observer.get());
-    auto message = websocket::message::decode( data );
-
-    if ( message.type() == hwebsocket_message::type::http )
-         sc_obs->on_http_data(netobject::ptr(this), message.read<std::string>());
-
-    else if ( message.type() == hwebsocket_message::type::wstext )
-        sc_obs->on_text_data(netobject::ptr(this), message.read<std::string>());
-
-    else if ( message.type() == hwebsocket_message::type::wsbinary )
-        sc_obs->on_binary_data(netobject::ptr(this), message.read<bytearray>());
-
-    // OSC TODO
+    m_observer->on_data(obj, t, data);
 }
 
-template<typename T> void websocket::connection<T>::write_text(std::string text)
+void websocket::connection::write_text(std::string text)
 {
     // encode and send
     auto encoded = websocket::message::encode(text);
     m_tcp_connection->write(encoded.read<std::string>());
 }
 
-template<typename T> void websocket::connection<T>::write_binary(bytearray data)
+void websocket::connection::write_binary(bytearray data)
 {
 
 }
 
-template<typename T> void websocket::connection<T>::write_raw(bytearray data)
+void websocket::connection::write_raw(bytearray data)
 {
     std::string str( data.begin(), data.end() );
     m_tcp_connection->write( str );
 }
 
-template<typename T> void websocket::connection<T>::write_osc(std::string address)
+void websocket::connection::write_osc(std::string address)
 {
     // get encoded binary
     // call write_binary
@@ -407,13 +466,13 @@ void websocket::client::disconnect()
 void websocket::client::on_tcp_connected(object::ptr)
 {
     // upgrade tcp_connection to websocket
-    m_connection = websocket::connection<websocket::client>::ptr(
-        new websocket::connection<websocket::client>(m_tcp_client.connection()) );
+    m_connection = websocket::connection::ptr(
+        new websocket::connection(m_tcp_client.connection()) );
 
     // set data observer until handshake is accepted
-    std::function<void(object::ptr, bytearray)> dfunc =
-            std::bind( &websocket::client::on_tcp_data,
-                       this, std::placeholders::_1, std::placeholders::_2 );
+    std::function<void(object::ptr, data_t, bytearray)> dfunc =
+            std::bind( &websocket::client::on_tcp_data, this,
+                       std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
 
     auto observer = generic_observer::ptr( new generic_observer );
     observer->on_data_f = dfunc;
@@ -431,7 +490,7 @@ void websocket::client::on_tcp_connected(object::ptr)
     m_connection->write_raw(bytearray(handshake.begin(), handshake.end()));
 }
 
-void websocket::client::on_tcp_data(object::ptr, bytearray data )
+void websocket::client::on_tcp_data(object::ptr, data_t, bytearray data )
 {
     std::string str(data.begin(), data.end());
 
@@ -485,17 +544,17 @@ void websocket::server::on_new_tcp_connection(object::ptr object)
     tcp::connection::ptr connection(dynamic_cast<tcp::connection*>(object.get()));
     auto observer = generic_observer::ptr( new generic_observer );
 
-    std::function<void(object::ptr, bytearray)> dfunc =
-            std::bind( &websocket::server::on_tcp_data,
-                       this, std::placeholders::_1, std::placeholders::_2 );
+    std::function<void(object::ptr, data_t, bytearray)> dfunc =
+            std::bind( &websocket::server::on_tcp_data, this,
+                       std::placeholders::_1, std::placeholders::_2 , std::placeholders::_3);
 
     // observe connection's incoming tcp_data
     // look for a websocket handshake pattern
     observer->on_data_f = dfunc;
-    connection->set_observer(observer);
+    connection->set_observer( observer );
 }
 
-void websocket::server::on_tcp_data(object::ptr object, bytearray data)
+void websocket::server::on_tcp_data(object::ptr object, data_t, bytearray data)
 {
     auto str = std::string(data.begin(), data.end());
 
@@ -505,10 +564,9 @@ void websocket::server::on_tcp_data(object::ptr object, bytearray data)
         // TODO
 
         // upgrade tcp_connection to websocket
-
         tcp::connection::ptr connection(dynamic_cast<tcp::connection*>(object.get()));
-        auto ptr = websocket::connection<websocket::server>::ptr(
-                   new websocket::connection<websocket::server>(connection));
+        auto ptr = websocket::connection::ptr(
+                   new websocket::connection(connection));
 
         m_connections.push_back(ptr);
         m_observer->on_connection(ptr);
@@ -524,25 +582,24 @@ void websocket::server::on_tcp_disconnection(object::ptr object)
 
 int pyr_ws_con_bind(VMGlobals* g, int)
 {
-    auto con = sclang::read<websocket::connection>(g->sp, 0);
+    auto con = sclang::read<websocket::connection*>(g->sp, 0);
     auto obs = new sc_observer<websocket::connection>(g->sp, con);
-
-    con->set_observer(observer::ptr(obs));
+    con->set_observer(sc_observer<websocket::connection>::ptr(obs));
 
     return errNone;
 }
 
 int pyr_ws_con_write_text(VMGlobals* g, int)
 {
-    auto con = sclang::read<websocket::connection>(g->sp-1, 0);
-    con->write_text(read<std::string>(g->sp));
+    auto con = sclang::read<websocket::connection*>(g->sp-1, 0);
+    con->write_text(sclang::read<std::string>(g->sp));
 
     return errNone;
 }
 
 int pyr_ws_con_write_osc(VMGlobals* g, int)
 {
-    auto con = sclang::read<websocket::connection>(g->sp-2, 0);
+    auto con = sclang::read<websocket::connection*>(g->sp-2, 0);
     //con->write_osc(); // !TODO
 
     return errNone;
@@ -550,7 +607,7 @@ int pyr_ws_con_write_osc(VMGlobals* g, int)
 
 int pyr_ws_con_write_binary(VMGlobals* g, int)
 {
-    auto con = sclang::read<websocket::connection>(g->sp-1, 0);
+    auto con = sclang::read<websocket::connection*>(g->sp-1, 0);
     // TODO
 
     return errNone;
@@ -558,7 +615,9 @@ int pyr_ws_con_write_binary(VMGlobals* g, int)
 
 int pyr_ws_con_write_raw(VMGlobals* g, int)
 {
-    auto con = sclang::read<websocket::connection>(g->sp-1, 0);
+    auto con = sclang::read<websocket::connection*>(g->sp-1, 0);
+    // TODO
+
     return errNone;
 }
 
@@ -568,8 +627,7 @@ int pyr_ws_client_create(VMGlobals* g, int)
 {
     auto client = new websocket::client( ioService );
     auto observer = new sc_observer<websocket::client>(g->sp, client);
-
-    client->set_observer(observer::ptr( observer ));
+    client->set_observer(boost::shared_ptr<sc_observer<websocket::client>>(observer));
 
     return errNone;
 }
@@ -577,7 +635,9 @@ int pyr_ws_client_create(VMGlobals* g, int)
 int pyr_ws_client_connect(VMGlobals* g, int)
 {
     auto client = sclang::read<websocket::client*>(g->sp-2, 0);
-    client->connect(sclang::read<std::string>(g->sp-1), sclang::read<int>(g->sp));
+
+    client->connect( sclang::read<std::string>(g->sp-1),
+                     sclang::read<int>(g->sp));
 
     return errNone;
 }
@@ -602,8 +662,9 @@ int pyr_ws_client_free(VMGlobals* g, int)
 
 int pyr_ws_server_instantiate_run(VMGlobals* g, int)
 {
-    auto server = new websocket::server(ioService, sclang::read<int>(g->sp));
+    auto server = new websocket::server( ioService, sclang::read<int>(g->sp) );
     auto observer = new sc_observer<websocket::server>(g->sp-1, server);
+    server->set_observer(boost::shared_ptr<sc_observer<websocket::server>>(observer));
 
     return errNone;
 }

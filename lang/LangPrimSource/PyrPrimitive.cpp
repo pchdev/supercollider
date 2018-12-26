@@ -4267,7 +4267,7 @@ void initPrimitives()
 	initMathPrimitives();
 	initSignalPrimitives();
 	initArrayPrimitives();
-    ossia::supercollider::initialize();
+    network::initialize();
 
 void initSymbolPrimitives();
 	initSymbolPrimitives();
