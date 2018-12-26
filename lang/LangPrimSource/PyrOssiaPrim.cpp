@@ -4,6 +4,8 @@
 #include <iostream>
 #include <boost/thread.hpp>
 #include <QCryptographicHash>
+#include <QRandomGenerator>
+#include <QString>
 
 #define STRMAXLE 4096
 #define errpost_return(err) std::cout << err.message() << std::endl; return;
@@ -77,10 +79,9 @@ template<typename T> void sclang::return_data(pyrobject* object, T data, const c
     gLangMutex.unlock();
 }
 
-template<typename T>
-void sclang::return_data(pyrobject* object, std::vector<T> data, const char* sym)
+template<typename T> void sclang::return_data(
+        pyrobject* object, std::vector<T> data, const char* sym)
 {
-    // TODO
     gLangMutex.lock();
 
     if ( compiledOK )
@@ -89,11 +90,8 @@ void sclang::return_data(pyrobject* object, std::vector<T> data, const char* sym
         g->canCallOS = true;
 
         ++g->sp; sclang::write<pyrobject*>(g->sp, object);
-
-        for ( const auto& d : data )
-        {
-            ++g->sp;
-            sclang::write<T>(g->sp, d);
+        for ( const auto& d : data ) {
+            ++g->sp; sclang::write<T>(g->sp, d);
         }
 
         runInterpreter(g, getsym(sym), data.size()+1);
@@ -271,7 +269,7 @@ void generic_observer::on_disconnection(object::ptr p)
 
 void generic_observer::on_data(object::ptr p, data_t t, bytearray d)
 {
-    on_data_f(p, t, d);
+    on_data_f(p,t,d);
 }
 
 template<typename T> boost::shared_ptr<sc_observer<T>> create(pyrslot* s, T* o)
@@ -297,8 +295,7 @@ template<typename T> void sc_observer<T>::on_disconnection(object::ptr obj)
     sclang::return_data<T*>(m_pyrobject, con, "pvOnDisconnection");
 }
 
-template<typename T>
-void sc_observer<T>::on_data(object::ptr obj, data_t type, bytearray data)
+template<typename T> void sc_observer<T>::on_data(object::ptr obj, data_t type, bytearray data)
 {
     auto con = dynamic_cast<T*>(obj.get());
 
@@ -315,28 +312,16 @@ template<typename T> void sc_observer<T>::on_osc_data(boost::shared_ptr<T>, std:
 
 }
 
-template<typename T> void sc_observer<T>::on_http_data(boost::shared_ptr<T>, std::string data )
-{
-    gLangMutex.lock();
-
-    auto g = gMainVMGlobals;
-    ++g->sp; sclang::write<pyrobject*>(g->sp, m_pyrobject);
-    ++g->sp; sclang::write<std::string>(g->sp, data);
-    runInterpreter(g, getsym("pvOnHTTPMessageReceived"), 2);
-
-    gLangMutex.unlock();
+template<typename T>  inline void sc_observer<T>::on_http_data(
+        boost::shared_ptr<T>, std::string data )
+{   
+    sclang::return_data<std::string>(m_pyrobject, data, "pvOnHTTPMessageReceived");
 }
 
-template<typename T> void sc_observer<T>::on_text_data(boost::shared_ptr<T>, std::string data )
+template<typename T> inline void sc_observer<T>::on_text_data(
+        boost::shared_ptr<T>, std::string data )
 {
-    gLangMutex.lock();
-
-    auto g = gMainVMGlobals;
-    ++g->sp; sclang::write<pyrobject*>(g->sp, m_pyrobject);
-    ++g->sp; sclang::write<std::string>(g->sp, data);
-    runInterpreter(g, getsym("pvOnTextMessageReceived"), 2);
-
-    gLangMutex.unlock();
+    sclang::return_data<std::string>(m_pyrobject, data, "pvOnTextMessageReceived");
 }
 
 template<typename T> void sc_observer<T>::on_binary_data(boost::shared_ptr<T>, bytearray )
@@ -350,12 +335,31 @@ using namespace network::websocket;
 
 std::string websocket::generate_sec_key()
 {
-    return std::string();
+    QRandomGenerator kgen;
+    QByteArray res;
+
+    for ( uint8_t i = 0; i < 25; ++i)
+    {
+        uint8_t rdm = kgen.generate64();
+        res.append(rdm);
+    }
+
+    auto key = res.toBase64();
+    key.append("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    auto hash = QCryptographicHash::hash(key, QCryptographicHash::Sha1);
+    key = hash.toBase64();
+
+    return key.toStdString();
 }
 
-std::string websocket::generate_accept_key(std::string const& sec_key)
+std::string websocket::generate_accept_key(std::string& key)
 {
-    return std::string();
+    QString qkey = QString::fromStdString(key);
+    qkey.append ( "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" );
+    auto hash = QCryptographicHash::hash(qkey.toUtf8(), QCryptographicHash::Sha1);
+    auto b64 = hash.toBase64();
+
+    return b64.toStdString();
 }
 
 websocket::message websocket::message::decode(bytearray data)

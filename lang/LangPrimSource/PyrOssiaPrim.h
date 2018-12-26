@@ -179,7 +179,7 @@ namespace http
 namespace websocket
 {
 static std::string generate_sec_key();
-static std::string generate_accept_key(std::string const& sec_key);
+static std::string generate_accept_key(std::string &sec_key);
 
 class message
 {
