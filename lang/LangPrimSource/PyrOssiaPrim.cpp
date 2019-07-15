@@ -137,7 +137,10 @@ int
 pyr_ws_con_bind(VMGlobals* g, int)
 // ------------------------------------------------------------------------------------------------
 {
-    auto connection = sclang::read<network::Connection*>(g->sp, 0);
+    auto nc     = sclang::read<network::Connection*>(g->sp);
+    auto mgc    = sclang::read<mg_connection*>(g->sp, 0);
+
+    nc->object = slotRawObject(g->sp);
     return errNone;
 }
 
@@ -146,13 +149,18 @@ int
 pyr_ws_con_write_text(VMGlobals* g, int)
 // ------------------------------------------------------------------------------------------------
 {
-    auto connection = sclang::read<network::Connection*>(g->sp-1, 0);
+    auto nc     = sclang::read<network::Connection*>(g->sp-1, 0);
+    auto text   = sclang::read<std::string>(g->sp);
+
+    mg_send_websocket_frame(nc->connection, WEBSOCKET_OP_TEXT, text.c_str(), text.size());
     return errNone;
 }
 
 // ------------------------------------------------------------------------------------------------
 int
 pyr_ws_con_write_osc(VMGlobals* g, int)
+// that would be a variant array
+// see oscpack for parsing
 // ------------------------------------------------------------------------------------------------
 {
     auto connection = sclang::read<network::Connection*>(g->sp-1, 0);
@@ -219,8 +227,9 @@ pyr_ws_server_instantiate_run(VMGlobals* g, int)
 {
     int port = sclang::read<int>(g->sp);
     auto server = new network::Server(port);
+    server->object = slotRawObject(g->sp-1);
 
-    sclang::write(g->sp-1, server);
+    sclang::write(g->sp-1, server, 0);
     return errNone;
 }
 

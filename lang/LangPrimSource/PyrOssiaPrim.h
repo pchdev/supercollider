@@ -88,15 +88,24 @@ void
 initialize();
 
 // ------------------------------------------------------------------------------------------------
-class Connection
+struct Connection
 // ------------------------------------------------------------------------------------------------
 {
+    pyrobject*
+    object = nullptr;
+
     mg_connection*
-    m_connection = nullptr;
+    connection = nullptr;
 
-public:
-    Connection();
+    // ------------------------------------------------------------------------------------------------
+    Connection(mg_connection* mgc) : connection(mgc) {}
 
+    // ------------------------------------------------------------------------------------------------
+    bool
+    operator==(Connection const& rhs) { return connection == rhs.connection; }
+
+    bool
+    operator==(mg_connection* rhs) { return connection == rhs; }
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -126,18 +135,21 @@ class Server
     m_port = 5678;
 
     std::string
-    m_name;
+    m_name = "ossia-wsserver";
 
     bool
     m_running = false;
 
 public:
 
+    pyrobject*
+    object = nullptr;
+
     // ------------------------------------------------------------------------------------------------
     Server() { initialize(); }
 
     // ------------------------------------------------------------------------------------------------
-    Server(uint16_t port) : m_port(port) { initialize(); }
+    Server(uint16_t port) : m_port(port) { initialize(); }   
 
     // ------------------------------------------------------------------------------------------------
     void
@@ -148,12 +160,22 @@ public:
         char s_tcp[5];
         sprintf(s_tcp, "%d", m_port);
 
+        fprintf(stdout, "[websocket] binding server on port %d\n", m_port);
+
         auto tcp_connection = mg_bind(&m_mginterface, s_tcp, ws_event_handler);
         mg_set_protocol_http_websocket(tcp_connection);
 
+        fprintf(stdout, "[avahi] registering service: %s\n", m_name.c_str());
+
+        int err;
+
         m_avpoll    = avahi_simple_poll_new();
         m_avclient  = avahi_client_new(avahi_simple_poll_get(m_avpoll),
-                      static_cast<AvahiClientFlags>(0), avahi_client_callback, this, nullptr);
+                      static_cast<AvahiClientFlags>(0), avahi_client_callback, this, &err);
+
+        if (err) {
+            fprintf(stdout, "[avahi] error creating new client: %d\n", err);
+        }
 
         m_running = true;
         poll();
@@ -213,27 +235,27 @@ public:
         {
         case AVAHI_ENTRY_GROUP_REGISTERING:
         {
-            fprintf(stderr, "[avahi] entry group registering\n");
+            fprintf(stdout, "[avahi] entry group registering\n");
             break;
         }
         case AVAHI_ENTRY_GROUP_ESTABLISHED:
         {
-            fprintf(stderr, "[avahi] entry group established\n");
+            fprintf(stdout, "[avahi] entry group established\n");
             break;
         }
         case AVAHI_ENTRY_GROUP_COLLISION:
         {
-            fprintf(stderr, "[avahi] entry group collision\n");
+            fprintf(stdout, "[avahi] entry group collision\n");
             break;
         }
         case AVAHI_ENTRY_GROUP_FAILURE:
         {
-            fprintf(stderr, "[avahi] entry group failure\n");
+            fprintf(stdout, "[avahi] entry group failure\n");
             break;
         }
         case AVAHI_ENTRY_GROUP_UNCOMMITED:
         {
-            fprintf(stderr, "[avahi] entry group uncommited\n");
+            fprintf(stdout, "[avahi] entry group uncommited\n");
             break;
         }
         }
@@ -250,44 +272,44 @@ public:
         {
         case AVAHI_CLIENT_CONNECTING:
         {
-            fprintf(stderr, "[avahi] client connecting\n");
+            fprintf(stdout, "[avahi] client connecting\n");
             break;
         }
         case AVAHI_CLIENT_S_REGISTERING:
         {
-            fprintf(stderr, "[avahi] client registering\n");
+            fprintf(stdout, "[avahi] client registering\n");
             break;
         }
         case AVAHI_CLIENT_S_RUNNING:
         {
-            fprintf(stderr, "[avahi] client running\n");
+            fprintf(stdout, "[avahi] client running\n");
 
             auto group = server->m_avgroup;
             if(!group)
             {
-                fprintf(stderr, "[avahi] creating entry group\n");
+                fprintf(stdout, "[avahi] creating entry group\n");
                 group  = avahi_entry_group_new(client, avahi_group_callback, server);
                 server->m_avgroup = group;
             }
 
             if (avahi_entry_group_is_empty(group))
             {
-                fprintf(stderr, "[avahi] adding service\n");
+                fprintf(stdout, "[avahi] adding service\n");
 
                 int err = avahi_entry_group_add_service(group,
                     AVAHI_IF_UNSPEC, AVAHI_PROTO_INET, static_cast<AvahiPublishFlags>(0),
                     server->m_name.c_str(), "_oscjson._tcp", nullptr, nullptr, server->m_port, nullptr);
 
                 if (err) {
-                     fprintf(stderr, "Failed to add service: %s\n", avahi_strerror(err));
+                     fprintf(stdout, "Failed to add service: %s\n", avahi_strerror(err));
                      return;
                 }
 
-                fprintf(stderr, "[avahi] commiting service\n");
+                fprintf(stdout, "[avahi] commiting service\n");
                 err = avahi_entry_group_commit(group);
 
                 if (err) {
-                    fprintf(stderr, "Failed to commit group: %s\n", avahi_strerror(err));
+                    fprintf(stdout, "Failed to commit group: %s\n", avahi_strerror(err));
                     return;
                 }
             }
@@ -295,12 +317,12 @@ public:
         }
         case AVAHI_CLIENT_FAILURE:
         {
-            fprintf(stderr, "[avahi] client failure");
+            fprintf(stdout, "[avahi] client failure");
             break;
         }
         case AVAHI_CLIENT_S_COLLISION:
         {
-            fprintf(stderr, "[avahi] client collision");
+            fprintf(stdout, "[avahi] client collision");
             break;
         }
         }
@@ -321,12 +343,28 @@ public:
         }
         case MG_EV_WEBSOCKET_HANDSHAKE_DONE:
         {
+            Connection c(mgc);
+            server->m_connections.push_back(c);
+            // at this point, the pyrobject has not been set
+            //it will have to go through the "bind" primitive call first
+            sclang::return_data(server->object, &server->m_connections.back(), "pvOnNewConnection");
             break;
         }
         case MG_EV_WEBSOCKET_FRAME:
         {
+            auto wm = static_cast<websocket_message*>(data);
+            std::string wms(reinterpret_cast<const char*>(wm->data), wm->size);
+
+            // lookup connection
+            auto connection = std::find(
+                        server->m_connections.begin(),
+                        server->m_connections.end(), mgc);
+
+            if (connection != server->m_connections.end() && connection->object)
+                sclang::return_data(connection->object, wms, "pvOnTextMessageReceived");
             break;
         }
+
         case MG_EV_HTTP_REQUEST:
         {
             http_message* hm = static_cast<http_message*>(data);
