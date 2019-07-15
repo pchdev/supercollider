@@ -185,6 +185,34 @@ WebSocketClient
 	}
 }
 
+HttpRequest
+{
+	var m_ptr;
+	var m_method;
+	var m_query;
+	var m_mime;
+	var m_body;
+
+	*newFromPrim { |ptr, method, query, mime, body|
+		^this.newCopyargs(ptr, body)
+	}
+
+	*new { |server, method, query, mime, body|
+		^this.newCopyArgs(0x0, method, query, mime, body).send(server)
+	}
+
+	send { |server|
+
+	}
+
+	replyText { |text|
+
+	}
+
+	replyJson { |json|
+	}
+}
+
 WebSocketServer
 {
 	var m_ptr;
