@@ -177,6 +177,7 @@ endif()
 
 target_compile_definitions(libsclang PRIVATE YYSTACK_USE_ALLOC)
 target_link_libraries(libsclang tlsf ${PTHREADS_LIBRARIES})
+target_link_libraries(libsclang -lmongoose)
 
 if(SC_QT OR SC_IDE)
 	get_target_property(QtCore_location Qt5::Core LOCATION)

@@ -5,8 +5,6 @@
 
 // ------------------------------------------------------------------------------------------------
 extern bool compiledOK;
-extern boost::asio::io_context ioService;
-using  boost::asio::ip::tcp;
 using namespace sclang;
 
 // ------------------------------------------------------------------------------------------------
@@ -122,8 +120,8 @@ template<typename T> inline void
 sclang::free(pyrslot* s, T data)
 // ------------------------------------------------------------------------------------------------
 {
-    gMainVMGlobals->gc->Free(slotRawObject( s ));
-    SetNil( s );
+    gMainVMGlobals->gc->Free(slotRawObject(s));
+    SetNil(s);
     delete data;
 }
 
@@ -134,33 +132,39 @@ sclang::free(pyrslot* s, T data)
 // CONNECTION_PRIMITIVES
 // ------------------------------------------------------------------------------------------------
 
+// ------------------------------------------------------------------------------------------------
 int
 pyr_ws_con_bind(VMGlobals* g, int)
+// ------------------------------------------------------------------------------------------------
 {
+    auto connection = sclang::read<network::Connection*>(g->sp, 0);
     return errNone;
 }
 
+// ------------------------------------------------------------------------------------------------
 int
 pyr_ws_con_write_text(VMGlobals* g, int)
-{    
+// ------------------------------------------------------------------------------------------------
+{
+    auto connection = sclang::read<network::Connection*>(g->sp-1, 0);
     return errNone;
 }
 
-WS_UNIMPLEMENTED int
+// ------------------------------------------------------------------------------------------------
+int
 pyr_ws_con_write_osc(VMGlobals* g, int)
+// ------------------------------------------------------------------------------------------------
 {
+    auto connection = sclang::read<network::Connection*>(g->sp-1, 0);
     return errNone;
 }
 
-WS_UNIMPLEMENTED int
+// ------------------------------------------------------------------------------------------------
+int
 pyr_ws_con_write_binary(VMGlobals* g, int)
+// ------------------------------------------------------------------------------------------------
 {
-    return errNone;
-}
-
-WS_UNIMPLEMENTED int
-pyr_ws_con_write_raw(VMGlobals* g, int)
-{
+    auto connection = sclang::read<network::Connection*>(g->sp-1, 0);
     return errNone;
 }
 
@@ -168,9 +172,17 @@ pyr_ws_con_write_raw(VMGlobals* g, int)
 // CLIENT_PRIMITIVES
 // ------------------------------------------------------------------------------------------------
 
+// ------------------------------------------------------------------------------------------------
 int
 pyr_ws_client_create(VMGlobals* g, int)
+// ------------------------------------------------------------------------------------------------
 {
+    auto host = sclang::read<std::string>(g->sp-1);
+    auto port = sclang::read<int>(g->sp);
+
+    auto client = new network::Client(host, port);
+    sclang::write(g->sp-2, client);
+
     return errNone;
 }
 
@@ -186,25 +198,40 @@ pyr_ws_client_disconnect(VMGlobals* g, int)
     return errNone;
 }
 
+// ------------------------------------------------------------------------------------------------
 int
 pyr_ws_client_free(VMGlobals* g, int)
+// ------------------------------------------------------------------------------------------------
 {
+    auto client = sclang::read<network::Client*>(g->sp, 0);
+    sclang::free(g->sp, client);
+
     return errNone;
 }
 
 // ------------------------------------------------------------------------------------------------
 // SERVER_PRIMITIVES
-// ------------------------------------------------------------------------------------------------
 
+// ------------------------------------------------------------------------------------------------
 int
 pyr_ws_server_instantiate_run(VMGlobals* g, int)
+// ------------------------------------------------------------------------------------------------
 {
+    int port = sclang::read<int>(g->sp);
+    auto server = new network::Server(port);
+
+    sclang::write(g->sp-1, server);
     return errNone;
 }
 
+// ------------------------------------------------------------------------------------------------
 int
 pyr_ws_server_free(VMGlobals* g, int)
+// ------------------------------------------------------------------------------------------------
 {
+    auto server = sclang::read<network::Server*>(g->sp, 0);
+    sclang::free(g->sp, server);
+
     return errNone;
 }
 
@@ -223,7 +250,6 @@ network::initialize()
     WS_DECLPRIM  ("_WebSocketConnectionWriteText", pyr_ws_con_write_text, 2);
     WS_DECLPRIM  ("_WebSocketConnectionWriteOSC", pyr_ws_con_write_osc, 2);
     WS_DECLPRIM  ("_WebSocketConnectionWriteBinary", pyr_ws_con_write_binary, 2);
-    WS_DECLPRIM  ("_WebSocketConnectionWriteRaw", pyr_ws_con_write_raw, 2);
     WS_DECLPRIM  ("_WebSocketConnectionBind", pyr_ws_con_bind, 1);
 
     WS_DECLPRIM  ("_WebSocketClientCreate", pyr_ws_client_create, 1);
