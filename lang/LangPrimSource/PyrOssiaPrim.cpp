@@ -79,6 +79,14 @@ sclang::write(pyrslot* s, T object, uint16_t index )
 
 // ------------------------------------------------------------------------------------------------
 template<> inline void
+sclang::write(pyrslot* s, int object, uint16_t index)
+// ------------------------------------------------------------------------------------------------
+{
+    sclang::write(slotRawObject(s)->slots+index, object);
+}
+
+// ------------------------------------------------------------------------------------------------
+template<> inline void
 sclang::write(pyrslot* s, std::string object, uint16_t index)
 // ------------------------------------------------------------------------------------------------
 {
@@ -152,6 +160,18 @@ pyr_ws_con_bind(VMGlobals* g, int)
 {
     auto nc     = sclang::read<network::Connection*>(g->sp);
     auto mgc    = sclang::read<mg_connection*>(g->sp, 0);
+
+    // write address/port in sc object
+    char addr[32];
+    mg_sock_addr_to_str(&mgc->sa, addr, sizeof(addr), MG_SOCK_STRINGIFY_IP);
+    std::string saddr(addr, 32);
+    sclang::write(g->sp, saddr, 1);
+
+    char s_port[8];
+    mg_sock_addr_to_str(&mgc->sa, s_port, sizeof(s_port), MG_SOCK_STRINGIFY_PORT);
+    std::string strport(s_port, 8);
+    int port = std::stoi(strport);
+    sclang::write<int>(g->sp, port, 2);
 
     nc->object = slotRawObject(g->sp);
     return errNone;
@@ -327,6 +347,7 @@ network::initialize()
     WS_DECLPRIM  ("_WebSocketClientCreate", pyr_ws_client_create, 1);
     WS_DECLPRIM  ("_WebSocketClientConnect", pyr_ws_client_connect, 3);
     WS_DECLPRIM  ("_WebSocketClientDisconnect", pyr_ws_client_disconnect, 1);
+    WS_DECLPRIM  ("_WebSocketClientRequest", pyr_http_send, 1);
     WS_DECLPRIM  ("_WebSocketClientFree", pyr_ws_client_free, 1);
 
     WS_DECLPRIM  ("_WebSocketServerInstantiateRun", pyr_ws_server_instantiate_run, 2);
@@ -334,5 +355,5 @@ network::initialize()
 
     WS_DECLPRIM  ("_HttpRequestBind", pyr_http_request_bind, 1);
     WS_DECLPRIM  ("_HttpReply", pyr_http_reply, 3);
-    WS_DECLPRIM  ("_HttpSend", pyr_http_send, 1);
+
 }

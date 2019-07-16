@@ -1,8 +1,8 @@
 WebSocketConnection
 {
 	var m_ptr;
-	var m_address;
-	var m_port;
+	var <address;
+	var <port;
 	var textMessageCallback;
 	var binaryMessageCallback;
 	var oscMessageCallback;
@@ -17,19 +17,19 @@ WebSocketConnection
 		^this.primitiveFailed
 	}
 
-	onTextMessageReceived { |callback|
+	onTextMessageReceived_ { |callback|
 		textMessageCallback = callback;
 	}
 
-	onBinaryMessageReceived { |callback|
+	onBinaryMessageReceived_ { |callback|
 		binaryMessageCallback = callback;
 	}
 
-	onOSCMessageReceived { |callback|
+	onOSCMessageReceived_ { |callback|
 		oscMessageCallback = callback;
 	}
 
-	onHttpReplyReceived { |callback|
+	onHttpReplyReceived_ { |callback|
 		httpMessageCallback = callback;
 	}
 
@@ -63,11 +63,6 @@ WebSocketConnection
 
 	writeBinary { |data|
 		_WebSocketConnectionWriteBinary
-		^this.primitiveFailed
-	}
-
-	writeRaw { |data|
-		_WebSocketConnectionWriteRaw
 		^this.primitiveFailed
 	}
 }
@@ -139,19 +134,19 @@ WebSocketClient
 
 	// CALLBACKS -----------------------------
 
-	onTextMessageReceived { |callback|
+	onTextMessageReceived_ { |callback|
 		m_connection.onTextMessageReceived(callback);
 	}
 
-	onBinaryMessageReceived { |callback|
+	onBinaryMessageReceived_ { |callback|
 		m_connection.onBinaryMessageReceived(callback);
 	}
 
-	onOSCMessageReceived { |callback|
+	onOSCMessageReceived_ { |callback|
 		m_connection.onOSCMessageReceived(callback);
 	}
 
-	onHTTPReplyReceived { |callback|
+	onHTTPReplyReceived_ { |callback|
 		m_connection.onHTTPReplyReceived(callback);
 	}
 
@@ -169,8 +164,9 @@ WebSocketClient
 		m_connection.writeBinary(data);
 	}
 
-	writeRaw { |data|
-		m_connection.writeRaw(data);
+	request { |req|
+		_WebSocketClientRequest
+		^this.primitiveFailed
 	}
 
 	free {
@@ -198,10 +194,9 @@ HttpRequest
 	var <>query;
 	var <>mime;
 	var <>body;
-	var m_server;
 
 	*newFromPrim { |ptr|
-		^this.newCopyargs(ptr).reqCtor()
+		^this.newCopyArgs(ptr).reqCtor()
 	}
 
 	reqCtor {
@@ -211,11 +206,6 @@ HttpRequest
 
 	*new { |server, method, query, mime, body|
 		^this.newCopyArgs(0x0, method, query, mime, body)
-	}
-
-	send {
-		_HttpSend
-		^this.primitiveFailed
 	}
 
 	reply { |code, mime, text|
@@ -282,9 +272,8 @@ WebSocketServer
 		m_hcb = callback;
 	}
 
-	pvOnNewConnection { |connection|
-		var con = WebSocketConnection(connection);
-		postln("new connection!");
+	pvOnNewConnection { |con|
+		var connection = WebSocketConnection(con);
 		m_connections = m_connections.add(connection);
 		m_ncb.value(connection)
 	}
