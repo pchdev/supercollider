@@ -286,7 +286,7 @@ pyr_http_request_bind(vmglobals* g, int)
     auto req = sclang::read<network::HttpRequest*>(g->sp, 0);
     auto hm = req->message;
 
-    std::string method(hm->method.p, hm->method.len);
+    std::string method(hm->uri.p, hm->uri.len);
     std::string query(hm->query_string.p, hm->query_string.len);
 //    std::string mime; // todo
 
