@@ -314,8 +314,8 @@ pyr_http_reply(vmglobals* g, int)
 {
     auto req = sclang::read<network::HttpRequest*>(g->sp-3, 0);
     auto code = sclang::read<int>(g->sp-2);
-    auto mime = sclang::read<std::string>(g->sp-1);
-    auto body = sclang::read<std::string>(g->sp);
+    auto body = sclang::read<std::string>(g->sp-1);
+    auto mime = sclang::read<std::string>(g->sp);
 
     if (!mime.empty())
          mime.append("Content-Type: ");
@@ -340,7 +340,7 @@ network::initialize()
     int base = nextPrimitiveIndex(), index = 0;
 
     WS_DECLPRIM  ("_WebSocketConnectionWriteText", pyr_ws_con_write_text, 2);
-    WS_DECLPRIM  ("_WebSocketConnectionWriteOSC", pyr_ws_con_write_osc, 2);
+    WS_DECLPRIM  ("_WebSocketConnectionWriteOsc", pyr_ws_con_write_osc, 2);
     WS_DECLPRIM  ("_WebSocketConnectionWriteBinary", pyr_ws_con_write_binary, 2);
     WS_DECLPRIM  ("_WebSocketConnectionBind", pyr_ws_con_bind, 1);
 

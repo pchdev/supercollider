@@ -25,7 +25,7 @@ WebSocketConnection
 		binaryMessageCallback = callback;
 	}
 
-	onOSCMessageReceived_ { |callback|
+	onOscMessageReceived_ { |callback|
 		oscMessageCallback = callback;
 	}
 
@@ -43,7 +43,7 @@ WebSocketConnection
 		binaryMessageCallback.value(message);
 	}
 
-	pvOnOSCMessageReceived { |address, arguments|
+	pvOnOscMessageReceived { |address, arguments|
 		oscMessageCallback.value(address, arguments);
 	}
 
@@ -56,7 +56,7 @@ WebSocketConnection
 		^this.primitiveFailed
 	}
 
-	writeOSC { |addr, arguments|
+	writeOsc { |addr, arguments|
 		_WebSocketConnectionWriteOSC
 		^this.primitiveFailed
 	}
@@ -112,11 +112,11 @@ WebSocketClient
 		^this.primitiveFailed
 	}
 
-	onConnected { |callback|
+	onConnected_ { |callback|
 		m_ccb = callback;
 	}
 
-	onDisconnected { |callback|
+	onDisconnected_ { |callback|
 		m_dcb = callback;
 	}
 
@@ -142,11 +142,11 @@ WebSocketClient
 		m_connection.onBinaryMessageReceived(callback);
 	}
 
-	onOSCMessageReceived_ { |callback|
+	onOscMessageReceived_ { |callback|
 		m_connection.onOSCMessageReceived(callback);
 	}
 
-	onHTTPReplyReceived_ { |callback|
+	onHttpReplyReceived_ { |callback|
 		m_connection.onHTTPReplyReceived(callback);
 	}
 
@@ -156,7 +156,7 @@ WebSocketClient
 		m_connection.writeText(msg);
 	}
 
-	writeOSC { |addr ...arguments|
+	writeOsc { |addr ...arguments|
 		m_connection.writeOSC(addr, arguments);
 	}
 
@@ -164,7 +164,7 @@ WebSocketClient
 		m_connection.writeBinary(data);
 	}
 
-	request { |req|
+	sendRequest { |req|
 		_WebSocketClientRequest
 		^this.primitiveFailed
 	}
@@ -190,7 +190,7 @@ Http
 HttpRequest
 {
 	var m_ptr;
-	var <>method;
+	var <>uri;
 	var <>query;
 	var <>mime;
 	var <>body;
@@ -204,11 +204,11 @@ HttpRequest
 		^this.primitiveFailed
 	}
 
-	*new { |server, method, query, mime, body|
-		^this.newCopyArgs(0x0, method, query, mime, body)
+	*new { |uri = '/', query = "", mime = "", body = ""|
+		^this.newCopyArgs(0x0, uri, query, mime, body)
 	}
 
-	reply { |code, mime, text|
+	reply { |code, text, mime = ""|
 		_HttpReply
 		^this.primitiveFailed
 	}

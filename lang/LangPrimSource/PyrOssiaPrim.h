@@ -123,10 +123,7 @@ struct HttpRequest
 
     // ------------------------------------------------------------------------------------------------
     HttpRequest(mg_connection* con, http_message* msg) :
-        connection(con), message(msg)
-    {
-
-    }
+        connection(con), message(msg) {}
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -183,13 +180,12 @@ public:
 
         fprintf(stdout, "[websocket] binding server on port %d\n", m_port);
 
-        auto tcp_connection = mg_bind(&m_mginterface, s_tcp, ws_event_handler);
-        mg_set_protocol_http_websocket(tcp_connection);
+        auto connection = mg_bind(&m_mginterface, s_tcp, ws_event_handler);
+        mg_set_protocol_http_websocket(connection);
 
         fprintf(stdout, "[avahi] registering service: %s\n", m_name.c_str());
 
-        int err;
-
+        int err     = 0;
         m_avpoll    = avahi_simple_poll_new();
         m_avclient  = avahi_client_new(avahi_simple_poll_get(m_avpoll),
                       static_cast<AvahiClientFlags>(0), avahi_client_callback, this, &err);
