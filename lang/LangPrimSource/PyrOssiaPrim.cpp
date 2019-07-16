@@ -9,13 +9,16 @@ using namespace sclang;
 
 // ------------------------------------------------------------------------------------------------
 template<> inline bool
-sclang::read( pyrslot* s) { return s->tag == tagTrue; }
+sclang::read(pyrslot* s) { return s->tag == tagTrue; }
 
 template<> inline float
 sclang::read(pyrslot* s) { return static_cast<float>(s->u.f); }
 
 template<> inline int
 sclang::read(pyrslot* s) { return static_cast<int>(s->u.i); }
+
+template<typename T> inline T
+sclang::read(pyrslot* s) { return static_cast<T>(slotRawPtr(s)); }
 
 // ------------------------------------------------------------------------------------------------
 template<> inline std::string
@@ -72,6 +75,16 @@ sclang::write(pyrslot* s, T object, uint16_t index )
 {
     pyrslot* ivar = slotRawObject(s)->slots+index;
     SetPtr(ivar, object);
+}
+
+// ------------------------------------------------------------------------------------------------
+template<> inline void
+sclang::write(pyrslot* s, std::string object, uint16_t index)
+// ------------------------------------------------------------------------------------------------
+{
+    pyrslot* ivar = slotRawObject(s)->slots+index;
+    PyrString* str = newPyrString(gMainVMGlobals->gc, object.c_str(), 0, true);
+    SetObject(ivar, str);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -322,5 +335,4 @@ network::initialize()
     WS_DECLPRIM  ("_HttpRequestBind", pyr_http_request_bind, 1);
     WS_DECLPRIM  ("_HttpReply", pyr_http_reply, 3);
     WS_DECLPRIM  ("_HttpSend", pyr_http_send, 1);
-
 }
