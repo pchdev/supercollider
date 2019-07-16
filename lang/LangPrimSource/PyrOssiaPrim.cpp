@@ -245,14 +245,64 @@ pyr_ws_server_free(VMGlobals* g, int)
 }
 
 // ------------------------------------------------------------------------------------------------
+int
+pyr_http_request_bind(vmglobals* g, int)
+// loads contents of request in the sc object's instvariables
+// ------------------------------------------------------------------------------------------------
+{
+    auto req = sclang::read<network::HttpRequest*>(g->sp, 0);
+    auto hm = req->message;
+
+    std::string method(hm->method.p, hm->method.len);
+    std::string query(hm->query_string.p, hm->query_string.len);
+//    std::string mime; // todo
+
+    std::string contents(hm->body.p, hm->body.len);
+
+    sclang::write(g->sp, method, 1);
+    sclang::write(g->sp, query, 2);
+    sclang::write(g->sp, contents, 4);
+
+    return errNone;
+}
+
+// ------------------------------------------------------------------------------------------------
+int
+pyr_http_send(vmglobals* g, int)
+// ------------------------------------------------------------------------------------------------
+{
+    return errNone;
+}
+
+// ------------------------------------------------------------------------------------------------
+int
+pyr_http_reply(vmglobals* g, int)
+// ------------------------------------------------------------------------------------------------
+{
+    auto req = sclang::read<network::HttpRequest*>(g->sp-3, 0);
+    auto code = sclang::read<int>(g->sp-2);
+    auto mime = sclang::read<std::string>(g->sp-1);
+    auto body = sclang::read<std::string>(g->sp);
+
+    if (!mime.empty())
+         mime.append("Content-Type: ");
+
+    mg_send_head(req->connection, code, mime.length(), mime.data());
+    mg_send(req->connection, body.data(), body.length());
+
+    return errNone;
+}
+
+// ------------------------------------------------------------------------------------------------
 // PRIMITIVES_INITIALIZATION
 //---------------------------
 #define WS_DECLPRIM(_s, _f, _n)                     \
 definePrimitive( base, index++, _s, _f, _n, 0)
-// ------------------------------------------------------------------------------------------------
 
+// ------------------------------------------------------------------------------------------------
 void
 network::initialize()
+// ------------------------------------------------------------------------------------------------
 {
     int base = nextPrimitiveIndex(), index = 0;
 
@@ -268,5 +318,9 @@ network::initialize()
 
     WS_DECLPRIM  ("_WebSocketServerInstantiateRun", pyr_ws_server_instantiate_run, 2);
     WS_DECLPRIM  ("_WebSocketServerFree", pyr_ws_server_free, 1);
+
+    WS_DECLPRIM  ("_HttpRequestBind", pyr_http_request_bind, 1);
+    WS_DECLPRIM  ("_HttpReply", pyr_http_reply, 3);
+    WS_DECLPRIM  ("_HttpSend", pyr_http_send, 1);
 
 }

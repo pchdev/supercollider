@@ -109,6 +109,27 @@ struct Connection
 };
 
 // ------------------------------------------------------------------------------------------------
+struct HttpRequest
+// ------------------------------------------------------------------------------------------------
+{
+    pyrobject*
+    object = nullptr;
+
+    mg_connection*
+    connection = nullptr;
+
+    http_message*
+    message = nullptr;
+
+    // ------------------------------------------------------------------------------------------------
+    HttpRequest(mg_connection* con, http_message* msg) :
+        connection(con), message(msg)
+    {
+
+    }
+};
+
+// ------------------------------------------------------------------------------------------------
 class Server
 // ------------------------------------------------------------------------------------------------
 {
@@ -175,6 +196,8 @@ public:
 
         if (err) {
             fprintf(stdout, "[avahi] error creating new client: %d\n", err);
+            // memo -26 = daemon not running,
+            // with systemd, just do $systemctl enable avahi-daemon.service
         }
 
         m_running = true;
@@ -360,14 +383,20 @@ public:
                         server->m_connections.begin(),
                         server->m_connections.end(), mgc);
 
-            if (connection != server->m_connections.end() && connection->object)
-                sclang::return_data(connection->object, wms, "pvOnTextMessageReceived");
+            if (connection != server->m_connections.end() && connection->object) {
+                if (wm->flags & WEBSOCKET_OP_TEXT)
+                    sclang::return_data(connection->object, wms, "pvOnTextMessageReceived");
+                else if (wm->flags & WEBSOCKET_OP_BINARY)
+                    ; // todo
+
+            }
             break;
         }
-
         case MG_EV_HTTP_REQUEST:
         {
             http_message* hm = static_cast<http_message*>(data);
+            auto req = new HttpRequest(mgc, hm);
+            sclang::return_data(server->object, req, "pvOnHttpRequestReceived");
             break;
         }
         case MG_EV_CLOSE:

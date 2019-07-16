@@ -8,8 +8,8 @@ WebSocketConnection
 	var oscMessageCallback;
 	var httpMessageCallback;
 
-	*new { |ptr, addr, port|
-		^this.newCopyArgs(ptr, addr, port).prmBind();
+	*new { |ptr|
+		^this.newCopyArgs(ptr).prmBind();
 	}
 
 	prmBind {
@@ -29,7 +29,7 @@ WebSocketConnection
 		oscMessageCallback = callback;
 	}
 
-	onHTTPReplyReceived { |callback|
+	onHttpReplyReceived { |callback|
 		httpMessageCallback = callback;
 	}
 
@@ -47,7 +47,7 @@ WebSocketConnection
 		oscMessageCallback.value(address, arguments);
 	}
 
-	pvOnHTTPMessageReceived { |message|
+	pvOnHttpMessageReceived { |message|
 		httpMessageCallback.value(message);
 	}
 
@@ -185,31 +185,47 @@ WebSocketClient
 	}
 }
 
+Http
+{
+	*ok { ^200 }
+	*notFound { ^404 }
+}
+
 HttpRequest
 {
 	var m_ptr;
-	var m_method;
-	var m_query;
-	var m_mime;
-	var m_body;
+	var <>method;
+	var <>query;
+	var <>mime;
+	var <>body;
+	var m_server;
 
-	*newFromPrim { |ptr, method, query, mime, body|
-		^this.newCopyargs(ptr, body)
+	*newFromPrim { |ptr|
+		^this.newCopyargs(ptr).reqCtor()
+	}
+
+	reqCtor {
+		_HttpRequestBind
+		^this.primitiveFailed
 	}
 
 	*new { |server, method, query, mime, body|
-		^this.newCopyArgs(0x0, method, query, mime, body).send(server)
+		^this.newCopyArgs(0x0, method, query, mime, body)
 	}
 
-	send { |server|
-
+	send {
+		_HttpSend
+		^this.primitiveFailed
 	}
 
-	replyText { |text|
-
+	reply { |code, mime, text|
+		_HttpReply
+		^this.primitiveFailed
 	}
 
 	replyJson { |json|
+		// we assume code is 200 here
+		this.reply(200, "application/json", json);
 	}
 }
 
@@ -254,26 +270,28 @@ WebSocketServer
 		m_connections.do(_.write(data));
 	}
 
-	onNewConnection { |callback|
+	onNewConnection_ { |callback|
 		m_ncb = callback;
 	}
 
-	onDisconnection { |callback|
+	onDisconnection_ { |callback|
 		m_dcb = callback;
 	}
 
-	onHTTPRequestReceived { |callback|
+	onHttpRequestReceived_ { |callback|
 		m_hcb = callback;
 	}
 
-	pvOnNewConnection { |connection, addr, port|
-		var con = WebSocketConnection(connection, addr, port);
+	pvOnNewConnection { |connection|
+		var con = WebSocketConnection(connection);
+		postln("new connection!");
 		m_connections = m_connections.add(connection);
-		m_ncb.value(connection, addr, port)
+		m_ncb.value(connection)
 	}
 
-	pvOnHTTPRequestReceived { |request|
-		m_hcb.value(request);
+	pvOnHttpRequestReceived { |request|
+		var screq = HttpRequest.newFromPrim(request);
+		m_hcb.value(screq);
 	}
 
 	pvOnDisconnection { |connection|
