@@ -432,74 +432,8 @@ public:
 
     // ------------------------------------------------------------------------------------------------
     static void
-    event_handler(mg_connection* mgc, int event, void* data)
-    // ------------------------------------------------------------------------------------------------
-    {
-        auto client = static_cast<Client*>(mgc->mgr->user_data);
-        switch(event)
-        {
-        case MG_EV_CONNECT:
-        {
-            break;
-        }
-        case MG_EV_RECV:
-        {
-            break;
-        }
-        case MG_EV_WEBSOCKET_HANDSHAKE_DONE:
-        {
-            sclang::return_data(client->object, &client->m_connection, "pvOnConnected");
-            break;
-        }
-        case MG_EV_POLL:
-        {
-            break;
-        }
-        case MG_EV_WEBSOCKET_FRAME:
-        {
-            auto wm = static_cast<websocket_message*>(data);
-            std::string wms(reinterpret_cast<const char*>(wm->data), wm->size);
+    event_handler(mg_connection* mgc, int event, void* data);
 
-            if (wm->flags & WEBSOCKET_OP_TEXT)
-                sclang::return_data(client->m_connection.object, wms, "pvOnTextMessageReceived");
-
-            else if (wm->flags & WEBSOCKET_OP_BINARY)
-            {
-                // might be OSC
-                switch(wm->data[0])
-                {
-                case '#':
-                {
-                    // todo
-                    break;
-                }
-                case '/':
-                {
-                    auto array = ConvertOSCMessage(wm->size,
-                                 reinterpret_cast<char*>(wm->data));
-
-                    sclang::return_data(connection->object, array,
-                                        "pvOnOscMessageReceived");
-                    break;
-                }
-                default:
-                {
-                    // todo, return an Int8Array?
-                }
-                }
-            }
-
-            break;
-        }
-        case MG_EV_CLOSE:
-        {
-
-        }
-
-        }
-
-
-    }
 };
 
 }
