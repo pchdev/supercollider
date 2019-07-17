@@ -1,4 +1,5 @@
 #include "PyrOssiaPrim.h"
+#include "OSCData.h"
 
 #define strmaxle 4096
 #define errpost_return(err) std::cout << err.message() << std::endl; return;
@@ -25,14 +26,16 @@ template<> inline std::string
 sclang::read(pyrslot* s)
 // ------------------------------------------------------------------------------------------------
 {
-    char v[strmaxle];
-    slotStrVal(s, v, strmaxle);
-    return static_cast<std::string>(v);
+    return std::string(slotRawString(s)->s);
+//    char v[strmaxle];
+//    slotStrVal(s, v, strmaxle);
+//    return static_cast<std::string>(v);
 }
 
 // ------------------------------------------------------------------------------------------------
 template<typename T> inline T
 sclang::read(pyrslot* s, uint16_t index)
+// ------------------------------------------------------------------------------------------------
 {
     return static_cast<T>(slotRawPtr(&slotRawObject(s)->slots[index]));
 }
@@ -55,6 +58,9 @@ sclang::write(pyrslot* s, bool v) { SetBool(s, v); }
 
 template<> inline void
 sclang::write(pyrslot* s, pyrobject* o) { SetObject(s, o); }
+
+template<> inline void
+sclang::write(pyrslot* s, char c) { SetChar(s, c); }
 
 template<typename T> inline void
 sclang::write(pyrslot* s, T o) { SetPtr(s, o); }
@@ -145,7 +151,82 @@ sclang::free(pyrslot* s, T data)
 }
 
 // ------------------------------------------------------------------------------------------------
+void
+network::Server::ws_event_handler(mg_connection* mgc, int event, void* data)
 // ------------------------------------------------------------------------------------------------
+{
+    auto server = static_cast<Server*>(mgc->mgr->user_data);
+
+    switch(event)
+    {
+    case MG_EV_RECV:
+    {
+        break;
+    }
+    case MG_EV_WEBSOCKET_HANDSHAKE_DONE:
+    {
+        Connection c(mgc);
+        server->m_connections.push_back(c);
+        // at this point, the pyrobject has not been set
+        //it will have to go through the "bind" primitive call first
+        sclang::return_data(server->object, &server->m_connections.back(), "pvOnNewConnection");
+        break;
+    }
+    case MG_EV_WEBSOCKET_FRAME:
+    {
+        auto wm = static_cast<websocket_message*>(data);
+        std::string wms(reinterpret_cast<const char*>(wm->data), wm->size);
+
+        // lookup connection
+        auto connection = std::find(
+                    server->m_connections.begin(),
+                    server->m_connections.end(), mgc);
+
+        if (connection != server->m_connections.end() && connection->object) {
+            if (wm->flags & WEBSOCKET_OP_TEXT)
+                sclang::return_data(connection->object, wms, "pvOnTextMessageReceived");
+            else if (wm->flags & WEBSOCKET_OP_BINARY)
+            {
+                // might be OSC
+                switch(wm->data[0])
+                {
+                case '#':
+                {
+                    // todo
+                    break;
+                }
+                case '/':
+                {
+                    auto array = ConvertOSCMessage(wm->size,
+                                 reinterpret_cast<char*>(wm->data));
+
+                    sclang::return_data(connection->object, array,
+                                        "pvOnOscMessageReceived");
+                    break;
+                }
+                default:
+                {
+                    // todo, return an Int8Array?
+                }
+                }
+            }
+
+        }
+        break;
+    }
+    case MG_EV_HTTP_REQUEST:
+    {
+        http_message* hm = static_cast<http_message*>(data);
+        auto req = new HttpRequest(mgc, hm);
+        sclang::return_data(server->object, req, "pvOnHttpRequestReceived");
+        break;
+    }
+    case MG_EV_CLOSE:
+    {
+        break;
+    }
+    }
+}
 
 // ------------------------------------------------------------------------------------------------
 // CONNECTION_PRIMITIVES

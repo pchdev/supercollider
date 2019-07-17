@@ -18,7 +18,6 @@
     Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 */
 
-#include "PyrPrimitive.h"
 #include "PyrKernel.h"
 #include "PyrInterpreter.h"
 #include "PyrSched.h"
@@ -31,7 +30,6 @@
 #include <vector>
 #include <iostream>
 
-#include "scsynthsend.h"
 #include "sc_msg_iter.h"
 #include "SCBase.h"
 #include "server_shm.hpp"
@@ -55,6 +53,8 @@
 
 #endif
 
+#include "OSCData.h"
+
 struct InternalSynthServerGlobals
 {
 	struct World *mWorld;
@@ -77,6 +77,7 @@ extern bool compiledOK;
 
 std::vector<SC_UdpCustomInPort *> gCustomUdpPorts;
 
+static PyrObject* ConvertReplyAddress(ReplyAddress *inReply);
 
 ///////////
 
@@ -91,10 +92,6 @@ const int ivxNetAddr_Hostaddr = 0;
 const int ivxNetAddr_PortID = 1;
 // const int ivxNetAddr_Hostname = 2; // unused
 const int ivxNetAddr_Socket = 3;
-
-static int makeSynthMsgWithTags(big_scpacket *packet, PyrSlot *slots, int size);
-
-int makeSynthBundle(big_scpacket *packet, PyrSlot *slots, int size, bool useElapsed);
 
 static int addMsgSlot(big_scpacket *packet, PyrSlot *slot)
 {
@@ -139,7 +136,7 @@ static int addMsgSlot(big_scpacket *packet, PyrSlot *slot)
 	return errNone;
 }
 
-static int addMsgSlotWithTags(big_scpacket *packet, PyrSlot *slot)
+int addMsgSlotWithTags(big_scpacket *packet, PyrSlot *slot)
 {
 	switch (GetTag(slot)) {
 		case tagInt :
@@ -204,7 +201,7 @@ static int addMsgSlotWithTags(big_scpacket *packet, PyrSlot *slot)
 	return errNone;
 }
 
-static int makeSynthMsgWithTags(big_scpacket *packet, PyrSlot *slots, int size)
+int makeSynthMsgWithTags(big_scpacket *packet, PyrSlot *slots, int size)
 {
 	packet->BeginMsg();
 
@@ -239,10 +236,6 @@ static int makeSynthMsgWithTags(big_scpacket *packet, PyrSlot *slots, int size)
 
 	return errNone;
 }
-
-void PerformOSCBundle(int inSize, char *inData, PyrObject *inReply, int inPortNum);
-void PerformOSCMessage(int inSize, char *inData, PyrObject *inReply, int inPortNum, double time);
-static PyrObject* ConvertReplyAddress(ReplyAddress *inReply);
 
 static void localServerReplyFunc(struct ReplyAddress *inReplyAddr, char* inBuf, int inSize)
 {
@@ -361,9 +354,6 @@ inline size_t OSCStrLen(char *str)
 {
 	return (strlen(str) + 4) & ~3;
 }
-
-
-int makeSynthBundle(big_scpacket *packet, PyrSlot *slots, int size, bool useElapsed);
 
 static void netAddrTcpClientNotifyFunc(void *clientData)
 {
@@ -589,7 +579,7 @@ static PyrInt8Array* MsgToInt8Array ( sc_msg_iter& msg, bool runGC )
 
 static const double dInfinity = std::numeric_limits<double>::infinity();
 
-static PyrObject* ConvertOSCMessage(int inSize, char *inData)
+PyrObject* ConvertOSCMessage(int inSize, char *inData)
 {
 	char *cmdName = inData;
 	int cmdNameLen = OSCstrlen(cmdName);

@@ -53,6 +53,7 @@ set(sclang_sources
 	LangPrimSource/PyrUnixPrim.cpp
 	LangPrimSource/PyrSerialPrim.cpp
         LangPrimSource/PyrOssiaPrim.cpp
+        LangPrimSource/websocket/mongoose.c
 	LangSource/AdvancingAllocPool.cpp
 	LangSource/ByteCodeArray.cpp
 	LangSource/DumpParseNode.cpp

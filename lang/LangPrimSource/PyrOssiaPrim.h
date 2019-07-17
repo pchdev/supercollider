@@ -22,14 +22,13 @@
 #include "PyrInterpreter.h"
 #include "GC.h"
 #include "SC_LanguageClient.h"
-#include "OSCData.cpp"
-
-#include <mongoose.h>
+#include "websocket/mongoose.h"
 
 // ------------------------------------------------------------------------------------------------
 using pyrslot   = PyrSlot;
 using pyrobject = PyrObject;
 using vmglobals = VMGlobals;
+using pyrint8array = PyrInt8Array;
 
 // ------------------------------------------------------------------------------------------------
 #define TCP_BUFSIZE 32768
@@ -350,79 +349,7 @@ public:
 
     //-------------------------------------------------------------------------------------------------
     static void
-    ws_event_handler(mg_connection* mgc, int event, void* data)
-    //-------------------------------------------------------------------------------------------------
-    {
-        auto server = static_cast<Server*>(mgc->mgr->user_data);
-
-        switch(event)
-        {
-        case MG_EV_RECV:
-        {
-            break;
-        }
-        case MG_EV_WEBSOCKET_HANDSHAKE_DONE:
-        {
-            Connection c(mgc);
-            server->m_connections.push_back(c);
-            // at this point, the pyrobject has not been set
-            //it will have to go through the "bind" primitive call first
-            sclang::return_data(server->object, &server->m_connections.back(), "pvOnNewConnection");
-            break;
-        }
-        case MG_EV_WEBSOCKET_FRAME:
-        {
-            auto wm = static_cast<websocket_message*>(data);
-            std::string wms(reinterpret_cast<const char*>(wm->data), wm->size);
-
-            // lookup connection
-            auto connection = std::find(
-                        server->m_connections.begin(),
-                        server->m_connections.end(), mgc);
-
-            if (connection != server->m_connections.end() && connection->object) {
-                if (wm->flags & WEBSOCKET_OP_TEXT)
-                    sclang::return_data(connection->object, wms, "pvOnTextMessageReceived");
-                else if (wm->flags & WEBSOCKET_OP_BINARY)
-                {
-                    // might be OSC
-                    switch(wm->data[0])
-                    {
-                    case '#':
-                    {
-                        // todo
-                    }
-                    case '/':
-                    {
-                        auto array = ConvertOSCMessage(wm->size,
-                                   reinterpret_cast<char*>(wm->data));
-
-                        sclang::return_data(connection->object, array,
-                                            "pvOnOscMessageReceived");
-                    }
-                    default:
-                    {
-                        // todo, return an Int8Array?
-                    }
-                    }
-                }
-
-            }
-            break;
-        }
-        case MG_EV_HTTP_REQUEST:
-        {
-            http_message* hm = static_cast<http_message*>(data);
-            auto req = new HttpRequest(mgc, hm);
-            sclang::return_data(server->object, req, "pvOnHttpRequestReceived");
-            break;
-        }
-        case MG_EV_CLOSE:
-        {
-            break;
-        }
-        }
-    }
+    ws_event_handler(mg_connection* mgc, int event, void* data);
 };
 
 // ------------------------------------------------------------------------------------------------
