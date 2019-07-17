@@ -195,7 +195,7 @@ HttpRequest
 	var <>mime;
 	var <>body;
 
-	*newFromPrim { |ptr|
+	*newFromPrimitive { |ptr|
 		^this.newCopyArgs(ptr).reqCtor()
 	}
 
@@ -279,7 +279,7 @@ WebSocketServer
 	}
 
 	pvOnHttpRequestReceived { |request|
-		var screq = HttpRequest.newFromPrim(request);
+		var screq = HttpRequest.newFromPrimitive(request);
 		m_hcb.value(screq);
 	}
 

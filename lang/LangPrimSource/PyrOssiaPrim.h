@@ -22,6 +22,7 @@
 #include "PyrInterpreter.h"
 #include "GC.h"
 #include "SC_LanguageClient.h"
+#include "OSCData.cpp"
 
 #include <mongoose.h>
 
@@ -383,7 +384,28 @@ public:
                 if (wm->flags & WEBSOCKET_OP_TEXT)
                     sclang::return_data(connection->object, wms, "pvOnTextMessageReceived");
                 else if (wm->flags & WEBSOCKET_OP_BINARY)
-                    ; // todo
+                {
+                    // might be OSC
+                    switch(wm->data[0])
+                    {
+                    case '#':
+                    {
+                        // todo
+                    }
+                    case '/':
+                    {
+                        auto array = ConvertOSCMessage(wm->size,
+                                   reinterpret_cast<char*>(wm->data));
+
+                        sclang::return_data(connection->object, array,
+                                            "pvOnOscMessageReceived");
+                    }
+                    default:
+                    {
+                        // todo, return an Int8Array?
+                    }
+                    }
+                }
 
             }
             break;

@@ -64,7 +64,7 @@ template<> inline
 void sclang::write(pyrslot* s, std::string v)
 // ------------------------------------------------------------------------------------------------
 {
-    PyrString* str = newPyrString(gMainVMGlobals->gc, v.c_str(), 0, true);
+    auto str = newPyrString(gMainVMGlobals->gc, v.c_str(), 0, true);
     SetObject(s, str);
 }
 
@@ -73,8 +73,7 @@ template<typename T> inline void
 sclang::write(pyrslot* s, T object, uint16_t index )
 // ------------------------------------------------------------------------------------------------
 {
-    pyrslot* ivar = slotRawObject(s)->slots+index;
-    SetPtr(ivar, object);
+    SetPtr(slotRawObject(s)->slots+index, object);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -90,9 +89,8 @@ template<> inline void
 sclang::write(pyrslot* s, std::string object, uint16_t index)
 // ------------------------------------------------------------------------------------------------
 {
-    pyrslot* ivar = slotRawObject(s)->slots+index;
-    PyrString* str = newPyrString(gMainVMGlobals->gc, object.c_str(), 0, true);
-    SetObject(ivar, str);
+    auto str = newPyrString(gMainVMGlobals->gc, object.c_str(), 0, true);
+    SetObject(slotRawObject(s)->slots+index, str);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -158,8 +156,8 @@ int
 pyr_ws_con_bind(VMGlobals* g, int)
 // ------------------------------------------------------------------------------------------------
 {
-    auto nc     = sclang::read<network::Connection*>(g->sp);
-    auto mgc    = sclang::read<mg_connection*>(g->sp, 0);
+    auto nc     = sclang::read<network::Connection*>(g->sp, 0);
+    auto mgc    = nc->connection;
 
     // write address/port in sc object
     char addr[32];
@@ -191,12 +189,20 @@ pyr_ws_con_write_text(VMGlobals* g, int)
 
 // ------------------------------------------------------------------------------------------------
 int
-pyr_ws_con_write_osc(VMGlobals* g, int)
+pyr_ws_con_write_osc(VMGlobals* g, int n)
 // that would be a variant array
-// see oscpack for parsing
 // ------------------------------------------------------------------------------------------------
 {
     auto connection = sclang::read<network::Connection*>(g->sp-1, 0);
+
+    big_scpacket packet;
+    int err = makeSynthMsgWithTags(&packet, g->sp, n-1);
+
+    if (err != errNone)
+        return err;
+
+    mg_send_websocket_frame(connection->connection, WEBSOCKET_OP_BINARY,
+                            packet.data(), packet.size());
     return errNone;
 }
 
