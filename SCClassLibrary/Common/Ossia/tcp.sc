@@ -120,7 +120,7 @@ WebSocketClient
 	pvOnConnected { |ptr|
 		m_connection = WebSocketConnection(ptr);
 		connected = true;
-		m_ccb.value(addr, port);
+		m_ccb.value();
 	}
 
 	pvOnDisconnected {
