@@ -6,7 +6,6 @@ WebSocketConnection
 	var textMessageCallback;
 	var binaryMessageCallback;
 	var oscMessageCallback;
-	var httpMessageCallback;
 
 	*new { |ptr|
 		^this.newCopyArgs(ptr).prmBind();
@@ -29,10 +28,6 @@ WebSocketConnection
 		oscMessageCallback = callback;
 	}
 
-	onHttpReplyReceived_ { |callback|
-		httpMessageCallback = callback;
-	}
-
 	// prim-callbacks ---------------------------
 
 	pvOnTextMessageReceived { |message|
@@ -47,16 +42,17 @@ WebSocketConnection
 		oscMessageCallback.value(address, arguments);
 	}
 
-	pvOnHttpMessageReceived { |message|
-		httpMessageCallback.value(message);
-	}
-
 	writeText { |msg|
 		_WebSocketConnectionWriteText
 		^this.primitiveFailed
 	}
 
-	writeOsc { |addr, arguments|
+	writeOsc { |...array|
+		_WebSocketConnectionWriteOSC
+		^this.primitiveFailed
+	}
+
+	writeOscClient { |array|
 		_WebSocketConnectionWriteOSC
 		^this.primitiveFailed
 	}
@@ -74,6 +70,7 @@ WebSocketClient
 	var <connected;
 	var m_ccb; // connected
 	var m_dcb; // disconnected
+	var m_http_cb;
 
 	classvar g_instances;
 
@@ -120,8 +117,8 @@ WebSocketClient
 		m_dcb = callback;
 	}
 
-	pvOnConnected { |connection, addr, port|
-		m_connection = WebSocketConnection(connection, addr, port);
+	pvOnConnected { |ptr|
+		m_connection = WebSocketConnection(ptr);
 		connected = true;
 		m_ccb.value(addr, port);
 	}
@@ -135,19 +132,24 @@ WebSocketClient
 	// CALLBACKS -----------------------------
 
 	onTextMessageReceived_ { |callback|
-		m_connection.onTextMessageReceived(callback);
+		m_connection.onTextMessageReceived_(callback);
 	}
 
 	onBinaryMessageReceived_ { |callback|
-		m_connection.onBinaryMessageReceived(callback);
+		m_connection.onBinaryMessageReceived_(callback);
 	}
 
 	onOscMessageReceived_ { |callback|
-		m_connection.onOSCMessageReceived(callback);
+		m_connection.onOscMessageReceived_(callback);
 	}
 
 	onHttpReplyReceived_ { |callback|
-		m_connection.onHTTPReplyReceived(callback);
+		m_http_cb = callback;
+	}
+
+	pvOnHttpReplyReceived { |ptr|
+		var reply = HttpRequest.newFromPrimitive(ptr);
+		m_http_cb.value(reply);
 	}
 
 	// WRITING -------------------------------
@@ -156,8 +158,8 @@ WebSocketClient
 		m_connection.writeText(msg);
 	}
 
-	writeOsc { |addr ...arguments|
-		m_connection.writeOSC(addr, arguments);
+	writeOsc { |...array|
+		m_connection.writeOsc(array);
 	}
 
 	writeBinary { |data|

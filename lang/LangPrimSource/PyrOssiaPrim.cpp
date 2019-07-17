@@ -151,6 +151,42 @@ sclang::free(pyrslot* s, T data)
 }
 
 // ------------------------------------------------------------------------------------------------
+static void
+parse_websocket_frame(websocket_message* message, pyrobject* dest)
+// ------------------------------------------------------------------------------------------------
+{
+    std::string wms(reinterpret_cast<const char*>(message->data), message->size);
+
+    if (message->flags & WEBSOCKET_OP_TEXT) {
+        sclang::return_data(dest, wms, "pvOnTextMessageReceived");
+    }
+    else if (message->flags & WEBSOCKET_OP_BINARY)
+    {
+        // might be OSC
+        switch(message->data[0])
+        {
+        case '#':
+        {
+            // todo
+            break;
+        }
+        case '/':
+        {
+            auto array = ConvertOSCMessage(message->size,
+                         reinterpret_cast<char*>(message->data));
+            sclang::return_data(dest, array, "pvOnOscMessageReceived");
+            break;
+        }
+        default:
+        {
+            // todo, return an Int8Array?
+        }
+        }
+    }
+
+}
+
+// ------------------------------------------------------------------------------------------------
 void
 network::Server::ws_event_handler(mg_connection* mgc, int event, void* data)
 // ------------------------------------------------------------------------------------------------
@@ -175,43 +211,15 @@ network::Server::ws_event_handler(mg_connection* mgc, int event, void* data)
     case MG_EV_WEBSOCKET_FRAME:
     {
         auto wm = static_cast<websocket_message*>(data);
-        std::string wms(reinterpret_cast<const char*>(wm->data), wm->size);
 
         // lookup connection
         auto connection = std::find(
                     server->m_connections.begin(),
                     server->m_connections.end(), mgc);
 
-        if (connection != server->m_connections.end() && connection->object) {
-            if (wm->flags & WEBSOCKET_OP_TEXT)
-                sclang::return_data(connection->object, wms, "pvOnTextMessageReceived");
-            else if (wm->flags & WEBSOCKET_OP_BINARY)
-            {
-                // might be OSC
-                switch(wm->data[0])
-                {
-                case '#':
-                {
-                    // todo
-                    break;
-                }
-                case '/':
-                {
-                    auto array = ConvertOSCMessage(wm->size,
-                                 reinterpret_cast<char*>(wm->data));
+        if (connection != server->m_connections.end() && connection->object)
+            parse_websocket_frame(wm, connection->object);
 
-                    sclang::return_data(connection->object, array,
-                                        "pvOnOscMessageReceived");
-                    break;
-                }
-                default:
-                {
-                    // todo, return an Int8Array?
-                }
-                }
-            }
-
-        }
         break;
     }
     case MG_EV_HTTP_REQUEST:
@@ -229,8 +237,45 @@ network::Server::ws_event_handler(mg_connection* mgc, int event, void* data)
 }
 
 // ------------------------------------------------------------------------------------------------
-// CONNECTION_PRIMITIVES
+void
+network::Client::event_handler(mg_connection* mgc, int event, void* data)
 // ------------------------------------------------------------------------------------------------
+{
+    auto client = static_cast<Client*>(mgc->mgr->user_data);
+    switch(event)
+    {
+    case MG_EV_CONNECT:
+    {
+        break;
+    }
+    case MG_EV_WEBSOCKET_HANDSHAKE_DONE:
+    {
+        sclang::return_data(client->object, &client->m_connection, "pvOnConnected");
+        break;
+    }
+    case MG_EV_POLL:
+    {
+        break;
+    }
+    case MG_EV_WEBSOCKET_FRAME:
+    {
+        auto wm = static_cast<websocket_message*>(data);
+        parse_websocket_frame(wm, client->object);
+        break;
+    }
+    case MG_EV_HTTP_REPLY:
+    {
+        http_message* reply = static_cast<http_message*>(data);
+        auto req = new HttpRequest(mgc, reply);
+        sclang::return_data(client->object, req, "pvOnHttpReplyReceived");
+        break;
+    }
+    case MG_EV_CLOSE:
+    {
+
+    }
+    }
+}
 
 // ------------------------------------------------------------------------------------------------
 int
@@ -309,6 +354,7 @@ pyr_ws_client_create(VMGlobals* g, int)
     auto port = sclang::read<int>(g->sp);
 
     auto client = new network::Client(host, port);
+    client->object = slotRawObject(g->sp-2);
     sclang::write(g->sp-2, client);
 
     return errNone;
