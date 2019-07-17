@@ -153,7 +153,8 @@ class Server
     m_port = 5678;
 
     std::string
-    m_name = "ossia-wsserver";
+    m_name,
+    m_type;
 
     bool
     m_running = false;
@@ -164,10 +165,13 @@ public:
     object = nullptr;
 
     // ------------------------------------------------------------------------------------------------
-    Server() { initialize(); }
-
-    // ------------------------------------------------------------------------------------------------
-    Server(uint16_t port) : m_port(port) { initialize(); }   
+    Server(uint16_t port, std::string zcname, std::string zctype) :
+        m_port(port),
+        m_name(zcname),
+        m_type(zctype)
+    {
+        initialize();
+    }
 
     // ------------------------------------------------------------------------------------------------
     void
@@ -253,15 +257,9 @@ public:
         switch(state)
         {
         case AVAHI_ENTRY_GROUP_REGISTERING:
-        {
-            fprintf(stdout, "[avahi] entry group registering\n");
-            break;
-        }
         case AVAHI_ENTRY_GROUP_ESTABLISHED:
-        {
-            fprintf(stdout, "[avahi] entry group established\n");
+        case AVAHI_ENTRY_GROUP_UNCOMMITED:
             break;
-        }
         case AVAHI_ENTRY_GROUP_COLLISION:
         {
             fprintf(stdout, "[avahi] entry group collision\n");
@@ -272,11 +270,7 @@ public:
             fprintf(stdout, "[avahi] entry group failure\n");
             break;
         }
-        case AVAHI_ENTRY_GROUP_UNCOMMITED:
-        {
-            fprintf(stdout, "[avahi] entry group uncommited\n");
-            break;
-        }
+
         }
     }
 
@@ -290,15 +284,7 @@ public:
         switch(state)
         {
         case AVAHI_CLIENT_CONNECTING:
-        {
-            fprintf(stdout, "[avahi] client connecting\n");
-            break;
-        }
         case AVAHI_CLIENT_S_REGISTERING:
-        {
-            fprintf(stdout, "[avahi] client registering\n");
-            break;
-        }
         case AVAHI_CLIENT_S_RUNNING:
         {
             fprintf(stdout, "[avahi] client running\n");
@@ -317,7 +303,8 @@ public:
 
                 int err = avahi_entry_group_add_service(group,
                     AVAHI_IF_UNSPEC, AVAHI_PROTO_INET, static_cast<AvahiPublishFlags>(0),
-                    server->m_name.c_str(), "_oscjson._tcp", nullptr, nullptr, server->m_port, nullptr);
+                    server->m_name.c_str(), server->m_type.c_str(),
+                    nullptr, nullptr, server->m_port, nullptr);
 
                 if (err) {
                      fprintf(stdout, "Failed to add service: %s\n", avahi_strerror(err));
@@ -383,32 +370,35 @@ public:
     Client() : m_connection(nullptr)
     // ------------------------------------------------------------------------------------------------
     {
-
-    }
-
-    // ------------------------------------------------------------------------------------------------
-    Client(std::string hostaddr, uint16_t port) :
-        m_host(hostaddr), m_port(port), m_connection(nullptr)
-    // ------------------------------------------------------------------------------------------------
-    {
         mg_mgr_init(&m_mgr, this);
     }
 
     // ------------------------------------------------------------------------------------------------
     void
-    connect()
+    connect(std::string host, uint16_t port)
     // ------------------------------------------------------------------------------------------------
     {
+        m_host = host;
+        m_port = port;
+
         std::string ws_addr("ws://");
-        ws_addr.append(m_host);
+        ws_addr.append(host);
         ws_addr.append(":");
-        ws_addr.append(std::to_string(m_port));
+        ws_addr.append(std::to_string(port));
 
         m_connection.connection = mg_connect_ws(&m_mgr, event_handler, ws_addr.c_str(), nullptr, nullptr);
         assert(m_connection.connection); //for now
 
         m_running = true;
         pthread_create(&m_thread, nullptr, pthread_client_poll, this);
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    void
+    request(std::string req)
+    // ------------------------------------------------------------------------------------------------
+    {
+        mg_connect_http(&m_mgr, event_handler, req.data(), nullptr, nullptr);
     }
 
     // ------------------------------------------------------------------------------------------------

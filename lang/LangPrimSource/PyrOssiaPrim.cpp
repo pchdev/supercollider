@@ -342,32 +342,46 @@ pyr_ws_con_write_binary(VMGlobals* g, int)
 }
 
 // ------------------------------------------------------------------------------------------------
-// CLIENT_PRIMITIVES
-// ------------------------------------------------------------------------------------------------
-
-// ------------------------------------------------------------------------------------------------
 int
 pyr_ws_client_create(VMGlobals* g, int)
 // ------------------------------------------------------------------------------------------------
 {
+    auto client = new network::Client();
+    client->object = slotRawObject(g->sp);
+    sclang::write(g->sp, client, 0);
+
+    return errNone;
+}
+
+// ------------------------------------------------------------------------------------------------
+int
+pyr_ws_client_connect(VMGlobals* g, int)
+// ------------------------------------------------------------------------------------------------
+{
+    auto client = sclang::read<network::Client*>(g->sp-2, 0);
     auto host = sclang::read<std::string>(g->sp-1);
     auto port = sclang::read<int>(g->sp);
 
-    auto client = new network::Client(host, port);
-    client->object = slotRawObject(g->sp-2);
-    sclang::write(g->sp-2, client);
-
+    client->connect(host, port);
     return errNone;
 }
 
+// ------------------------------------------------------------------------------------------------
 int
-pyr_ws_client_connect(VMGlobals* g, int)
+pyr_ws_client_zconnect(vmglobals* g, int)
+// ------------------------------------------------------------------------------------------------
 {
+    auto client = sclang::read<network::Client*>(g->sp-1, 0);
+    auto zchost = sclang::read<std::string>(g->sp);
+
+    // todo
     return errNone;
 }
 
+// ------------------------------------------------------------------------------------------------
 int
 pyr_ws_client_disconnect(VMGlobals* g, int)
+// ------------------------------------------------------------------------------------------------
 {
     return errNone;
 }
@@ -384,18 +398,18 @@ pyr_ws_client_free(VMGlobals* g, int)
 }
 
 // ------------------------------------------------------------------------------------------------
-// SERVER_PRIMITIVES
-
-// ------------------------------------------------------------------------------------------------
 int
 pyr_ws_server_instantiate_run(VMGlobals* g, int)
 // ------------------------------------------------------------------------------------------------
 {
-    int port = sclang::read<int>(g->sp);
-    auto server = new network::Server(port);
-    server->object = slotRawObject(g->sp-1);
+    int port = sclang::read<int>(g->sp-2);
+    std::string name = sclang::read<std::string>(g->sp-1);
+    std::string type = sclang::read<std::string>(g->sp);
 
-    sclang::write(g->sp-1, server, 0);
+    auto server = new network::Server(port, name, type);
+    server->object = slotRawObject(g->sp-3);
+
+    sclang::write(g->sp-3, server, 0);
     return errNone;
 }
 
@@ -435,8 +449,13 @@ pyr_http_request_bind(vmglobals* g, int)
 // ------------------------------------------------------------------------------------------------
 int
 pyr_http_send(vmglobals* g, int)
+// from client
 // ------------------------------------------------------------------------------------------------
-{
+{    
+    auto client = sclang::read<network::Client*>(g->sp-1, 0);
+    auto req    = sclang::read<std::string>(g->sp);
+
+    client->request(req);
     return errNone;
 }
 
@@ -480,10 +499,11 @@ network::initialize()
     WS_DECLPRIM  ("_WebSocketClientCreate", pyr_ws_client_create, 1);
     WS_DECLPRIM  ("_WebSocketClientConnect", pyr_ws_client_connect, 3);
     WS_DECLPRIM  ("_WebSocketClientDisconnect", pyr_ws_client_disconnect, 1);
-    WS_DECLPRIM  ("_WebSocketClientRequest", pyr_http_send, 1);
+    WS_DECLPRIM  ("_WebSocketClientZConnect", pyr_ws_client_zconnect, 2);
+    WS_DECLPRIM  ("_WebSocketClientRequest", pyr_http_send, 2);
     WS_DECLPRIM  ("_WebSocketClientFree", pyr_ws_client_free, 1);
 
-    WS_DECLPRIM  ("_WebSocketServerInstantiateRun", pyr_ws_server_instantiate_run, 2);
+    WS_DECLPRIM  ("_WebSocketServerInstantiateRun", pyr_ws_server_instantiate_run, 4);
     WS_DECLPRIM  ("_WebSocketServerFree", pyr_ws_server_free, 1);
 
     WS_DECLPRIM  ("_HttpRequestBind", pyr_http_request_bind, 1);

@@ -84,7 +84,7 @@ WebSocketClient
 	// CREATE -------------------------------
 
 	*new {
-		^this.new.wsClientCtor();
+		^this.new.wsClientCtor().primCreate();
 	}
 
 	wsClientCtor {
@@ -99,8 +99,13 @@ WebSocketClient
 
 	// CONNECTION/DISCONNECTION ------------------------------
 
-	connect { |hostAddr, port|
+	connect { |ip, port|
 		_WebSocketClientConnect
+		^this.primitiveFailed
+	}
+
+	zconnect { |zc_name| // zeroconf connection
+		_WebSocketClientZConnect
 		^this.primitiveFailed
 	}
 
@@ -166,7 +171,7 @@ WebSocketClient
 		m_connection.writeBinary(data);
 	}
 
-	sendRequest { |req|
+	request { |req|
 		_WebSocketClientRequest
 		^this.primitiveFailed
 	}
@@ -225,6 +230,8 @@ WebSocketServer
 {
 	var m_ptr;
 	var m_port;
+	var m_name;
+	var m_type;
 	var m_connections;
 	var m_ncb;
 	var m_dcb;
@@ -240,16 +247,17 @@ WebSocketServer
 		})
 	}
 
-	*new { |port|
-		^this.newCopyArgs(0x0, port).wsServerCtor();
+	*new { |port, zname = "supercollider", ztype = "_oscjson._tcp"|
+		^this.newCopyArgs(0x0, port, zname, ztype).wsServerCtor();
 	}
 
 	wsServerCtor {
+		m_connnections = [];
 		g_instances = g_instances.add(this);
-		this.prmInstantiateRun(m_port);
+		this.prmInstantiateRun(m_port, m_name, m_type);
 	}
 
-	prmInstantiateRun { |port|
+	prmInstantiateRun { |port, name, type|
 		_WebSocketServerInstantiateRun
 		^this.primitiveFailed
 	}
