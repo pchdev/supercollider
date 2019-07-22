@@ -26,10 +26,9 @@ template<> inline std::string
 sclang::read(pyrslot* s)
 // ------------------------------------------------------------------------------------------------
 {
-    return std::string(slotRawString(s)->s);
-//    char v[strmaxle];
-//    slotStrVal(s, v, strmaxle);
-//    return static_cast<std::string>(v);
+    char v[strmaxle];
+    slotStrVal(s, v, strmaxle);
+    return static_cast<std::string>(v);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -459,19 +458,21 @@ pyr_http_send(vmglobals* g, int)
     return errNone;
 }
 
+#include <iostream>
+
 // ------------------------------------------------------------------------------------------------
 int
 pyr_http_reply(vmglobals* g, int)
 // ------------------------------------------------------------------------------------------------
 {
-    auto req = sclang::read<network::HttpRequest*>(g->sp-3, 0);
     auto code = sclang::read<int>(g->sp-2);
     auto body = sclang::read<std::string>(g->sp-1);
     auto mime = sclang::read<std::string>(g->sp);
 
     if (!mime.empty())
-         mime.append("Content-Type: ");
+        mime.insert(0, "Content-Type: ");
 
+    auto req = sclang::read<network::HttpRequest*>(g->sp-3, 0);
     mg_send_head(req->connection, code, mime.length(), mime.data());
     mg_send(req->connection, body.data(), body.length());
 
@@ -507,6 +508,6 @@ network::initialize()
     WS_DECLPRIM  ("_WebSocketServerFree", pyr_ws_server_free, 1);
 
     WS_DECLPRIM  ("_HttpRequestBind", pyr_http_request_bind, 1);
-    WS_DECLPRIM  ("_HttpReply", pyr_http_reply, 3);
+    WS_DECLPRIM  ("_HttpReply", pyr_http_reply, 4);
 
 }

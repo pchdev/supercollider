@@ -252,7 +252,7 @@ WebSocketServer
 	}
 
 	wsServerCtor {
-		m_connnections = [];
+		m_connections = [];
 		g_instances = g_instances.add(this);
 		this.prmInstantiateRun(m_port, m_name, m_type);
 	}
