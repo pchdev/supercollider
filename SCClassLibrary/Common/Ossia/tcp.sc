@@ -232,7 +232,7 @@ HttpRequest
 
 	replyJson { |json|
 		// we assume code is 200 here
-		this.reply(200, "application/json", json);
+		this.reply(200, json, "application/json");
 	}
 }
 
