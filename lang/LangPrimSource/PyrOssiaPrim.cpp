@@ -466,7 +466,6 @@ pyr_http_reply(vmglobals* g, int)
 
     auto req = sclang::read<network::HttpRequest*>(g->sp-3, 0);
     mg_send_head(req->connection, code, body.length(), mime.data());
-//    mg_send(req->connection, body.data(), body.length());
     mg_printf(req->connection, "%.*s", (int) body.length(), body.data());
 
     return errNone;
@@ -475,8 +474,8 @@ pyr_http_reply(vmglobals* g, int)
 // ------------------------------------------------------------------------------------------------
 // PRIMITIVES_INITIALIZATION
 //---------------------------
-#define WS_DECLPRIM(_s, _f, _n)                     \
-definePrimitive( base, index++, _s, _f, _n, 0)
+#define WS_DECLPRIM(_s, _f, _n, _v)                     \
+definePrimitive( base, index++, _s, _f, _n, _v)
 
 // ------------------------------------------------------------------------------------------------
 void
@@ -485,24 +484,23 @@ network::initialize()
 {
     int base = nextPrimitiveIndex(), index = 0;
 
-    WS_DECLPRIM  ("_WebSocketConnectionWriteText", pyr_ws_con_write_text, 2);
+    WS_DECLPRIM  ("_WebSocketConnectionWriteText", pyr_ws_con_write_text, 2, 0);
 
-    definePrimitive(base, index++, "_WebSocketConnectionWriteOsc", pyr_ws_con_write_osc, 1, 1);
-//    WS_DECLPRIM  ("_WebSocketConnectionWriteOsc", pyr_ws_con_write_osc, 2);
-    WS_DECLPRIM  ("_WebSocketConnectionWriteBinary", pyr_ws_con_write_binary, 2);
-    WS_DECLPRIM  ("_WebSocketConnectionBind", pyr_ws_con_bind, 1);
+    WS_DECLPRIM  ("_WebSocketConnectionWriteOsc", pyr_ws_con_write_osc, 1, 1);
+    WS_DECLPRIM  ("_WebSocketConnectionWriteBinary", pyr_ws_con_write_binary, 2, 0);
+    WS_DECLPRIM  ("_WebSocketConnectionBind", pyr_ws_con_bind, 1, 0);
 
-    WS_DECLPRIM  ("_WebSocketClientCreate", pyr_ws_client_create, 1);
-    WS_DECLPRIM  ("_WebSocketClientConnect", pyr_ws_client_connect, 3);
-    WS_DECLPRIM  ("_WebSocketClientDisconnect", pyr_ws_client_disconnect, 1);
-    WS_DECLPRIM  ("_WebSocketClientZConnect", pyr_ws_client_zconnect, 2);
-    WS_DECLPRIM  ("_WebSocketClientRequest", pyr_http_send_request, 2);
-    WS_DECLPRIM  ("_WebSocketClientFree", pyr_ws_client_free, 1);
+    WS_DECLPRIM  ("_WebSocketClientCreate", pyr_ws_client_create, 1, 0);
+    WS_DECLPRIM  ("_WebSocketClientConnect", pyr_ws_client_connect, 3, 0);
+    WS_DECLPRIM  ("_WebSocketClientDisconnect", pyr_ws_client_disconnect, 1, 0);
+    WS_DECLPRIM  ("_WebSocketClientZConnect", pyr_ws_client_zconnect, 2, 0);
+    WS_DECLPRIM  ("_WebSocketClientRequest", pyr_http_send_request, 2, 0);
+    WS_DECLPRIM  ("_WebSocketClientFree", pyr_ws_client_free, 1, 0);
 
-    WS_DECLPRIM  ("_WebSocketServerInstantiateRun", pyr_ws_server_instantiate_run, 4);
-    WS_DECLPRIM  ("_WebSocketServerFree", pyr_ws_server_free, 1);
+    WS_DECLPRIM  ("_WebSocketServerInstantiateRun", pyr_ws_server_instantiate_run, 4, 0);
+    WS_DECLPRIM  ("_WebSocketServerFree", pyr_ws_server_free, 1, 0);
 
-    WS_DECLPRIM  ("_HttpRequestBind", pyr_http_request_bind, 1);
-    WS_DECLPRIM  ("_HttpReply", pyr_http_reply, 4);
+    WS_DECLPRIM  ("_HttpRequestBind", pyr_http_request_bind, 1, 0);
+    WS_DECLPRIM  ("_HttpReply", pyr_http_reply, 4, 0);
 
 }
