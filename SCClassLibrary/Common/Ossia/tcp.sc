@@ -57,12 +57,12 @@ WebSocketConnection
 	}
 
 	writeOsc { |...array|
-		_WebSocketConnectionWriteOSC
+		_WebSocketConnectionWriteOsc
 		^this.primitiveFailed
 	}
 
 	writeOscClient { |array|
-		_WebSocketConnectionWriteOSC
+		_WebSocketConnectionWriteOsc
 		^this.primitiveFailed
 	}
 
@@ -174,7 +174,7 @@ WebSocketClient
 	}
 
 	writeOsc { |...array|
-		m_connection.writeOsc(array);
+		m_connection.writeOscClient(array);
 	}
 
 	writeBinary { |data|

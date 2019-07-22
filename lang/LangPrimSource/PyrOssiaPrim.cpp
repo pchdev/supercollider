@@ -162,25 +162,15 @@ parse_websocket_frame(websocket_message* message, pyrobject* dest)
     else if (message->flags & WEBSOCKET_OP_BINARY)
     {
         // might be OSC
-        switch(message->data[0])
-        {
-        case '#':
-        {
-            // todo
-            break;
-        }
-        case '/':
-        {
-            auto array = ConvertOSCMessage(message->size,
-                         reinterpret_cast<char*>(message->data));
-            sclang::return_data(dest, array, "pvOnOscMessageReceived");
-            break;
-        }
-        default:
-        {
-            // todo, return an Int8Array?
-        }
-        }
+        auto data = reinterpret_cast<char*>(message->data);
+
+        // this is weird... binary data starts at byte 4
+        data += 4;
+
+        // we have to check for osc messages and bundles,
+        // if not, transmit as raw binary data
+        auto array = ConvertOSCMessage(message->size, data);
+        sclang::return_data(dest, array, "pvOnOscMessageReceived");
     }
 
 }
@@ -317,19 +307,21 @@ pyr_ws_con_write_text(VMGlobals* g, int)
 // ------------------------------------------------------------------------------------------------
 int
 pyr_ws_con_write_osc(VMGlobals* g, int n)
-// that would be a variant array
 // ------------------------------------------------------------------------------------------------
 {
-    auto connection = sclang::read<network::Connection*>(g->sp-1, 0);
+    pyrslot* cslot = g->sp-n+1;
+    pyrslot* aslot = cslot+1;
+    auto connection = sclang::read<network::Connection*>(cslot, 0);
 
     big_scpacket packet;
-    int err = makeSynthMsgWithTags(&packet, g->sp, n-1);
+    int err = makeSynthMsgWithTags(&packet, aslot, n-1);
 
     if (err != errNone)
         return err;
 
     mg_send_websocket_frame(connection->connection, WEBSOCKET_OP_BINARY,
                             packet.data(), packet.size());
+
     return errNone;
 }
 
@@ -494,7 +486,9 @@ network::initialize()
     int base = nextPrimitiveIndex(), index = 0;
 
     WS_DECLPRIM  ("_WebSocketConnectionWriteText", pyr_ws_con_write_text, 2);
-    WS_DECLPRIM  ("_WebSocketConnectionWriteOsc", pyr_ws_con_write_osc, 2);
+
+    definePrimitive(base, index++, "_WebSocketConnectionWriteOsc", pyr_ws_con_write_osc, 1, 1);
+//    WS_DECLPRIM  ("_WebSocketConnectionWriteOsc", pyr_ws_con_write_osc, 2);
     WS_DECLPRIM  ("_WebSocketConnectionWriteBinary", pyr_ws_con_write_binary, 2);
     WS_DECLPRIM  ("_WebSocketConnectionBind", pyr_ws_con_bind, 1);
 
