@@ -7,8 +7,17 @@ WebSocketConnection
 	var binaryMessageCallback;
 	var oscMessageCallback;
 
-	*new { |ptr|
+	*new {
+		^super.new;
+	}
+
+	*newInit { |ptr|
 		^this.newCopyArgs(ptr).prmBind();
+	}
+
+	initialize { |ptr|
+		m_ptr = ptr;
+		this.prmBind();
 	}
 
 	prmBind {
@@ -84,12 +93,13 @@ WebSocketClient
 	// CREATE -------------------------------
 
 	*new {
-		^this.new.wsClientCtor().primCreate();
+		^super.new.wsClientCtor().primCreate();
 	}
 
 	wsClientCtor {
 		connected = false;
 		g_instances = g_instances.add(this);
+		m_connection = WebSocketConnection();
 	}
 
 	primCreate {
@@ -123,7 +133,7 @@ WebSocketClient
 	}
 
 	pvOnConnected { |ptr|
-		m_connection = WebSocketConnection(ptr);
+		m_connection.initialize(ptr);
 		connected = true;
 		m_ccb.value();
 	}
@@ -283,7 +293,7 @@ WebSocketServer
 	}
 
 	pvOnNewConnection { |con|
-		var connection = WebSocketConnection(con);
+		var connection = WebSocketConnection.newInit(con);
 		m_connections = m_connections.add(connection);
 		m_ncb.value(connection)
 	}

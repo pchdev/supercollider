@@ -264,7 +264,9 @@ network::Client::event_handler(mg_connection* mgc, int event, void* data)
     }
     case MG_EV_HTTP_REPLY:
     {
-        http_message* reply = static_cast<http_message*>(data);
+        http_message* reply = static_cast<http_message*>(data);        
+        mgc->flags != MG_F_CLOSE_IMMEDIATELY;
+
         auto req = new HttpRequest(mgc, reply);
         sclang::return_data(client->object, req, "pvOnHttpReplyReceived");
         break;
@@ -344,11 +346,11 @@ pyr_ws_con_write_binary(VMGlobals* g, int)
 int
 pyr_ws_client_create(VMGlobals* g, int)
 // ------------------------------------------------------------------------------------------------
-{
-    auto client = new network::Client();
+{    
+    auto client = new network::Client;
     client->object = slotRawObject(g->sp);
-    sclang::write(g->sp, client, 0);
 
+    sclang::write(g->sp, client, 0);
     return errNone;
 }
 
@@ -447,7 +449,7 @@ pyr_http_request_bind(vmglobals* g, int)
 
 // ------------------------------------------------------------------------------------------------
 int
-pyr_http_send(vmglobals* g, int)
+pyr_http_send_request(vmglobals* g, int)
 // from client
 // ------------------------------------------------------------------------------------------------
 {    
@@ -457,8 +459,6 @@ pyr_http_send(vmglobals* g, int)
     client->request(req);
     return errNone;
 }
-
-#include <iostream>
 
 // ------------------------------------------------------------------------------------------------
 int
@@ -473,8 +473,9 @@ pyr_http_reply(vmglobals* g, int)
         mime.insert(0, "Content-Type: ");
 
     auto req = sclang::read<network::HttpRequest*>(g->sp-3, 0);
-    mg_send_head(req->connection, code, mime.length(), mime.data());
-    mg_send(req->connection, body.data(), body.length());
+    mg_send_head(req->connection, code, body.length(), mime.data());
+//    mg_send(req->connection, body.data(), body.length());
+    mg_printf(req->connection, "%.*s", (int) body.length(), body.data());
 
     return errNone;
 }
@@ -501,7 +502,7 @@ network::initialize()
     WS_DECLPRIM  ("_WebSocketClientConnect", pyr_ws_client_connect, 3);
     WS_DECLPRIM  ("_WebSocketClientDisconnect", pyr_ws_client_disconnect, 1);
     WS_DECLPRIM  ("_WebSocketClientZConnect", pyr_ws_client_zconnect, 2);
-    WS_DECLPRIM  ("_WebSocketClientRequest", pyr_http_send, 2);
+    WS_DECLPRIM  ("_WebSocketClientRequest", pyr_http_send_request, 2);
     WS_DECLPRIM  ("_WebSocketClientFree", pyr_ws_client_free, 1);
 
     WS_DECLPRIM  ("_WebSocketServerInstantiateRun", pyr_ws_server_instantiate_run, 4);

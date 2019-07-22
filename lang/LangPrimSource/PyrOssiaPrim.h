@@ -23,6 +23,7 @@
 #include "GC.h"
 #include "SC_LanguageClient.h"
 #include "websocket/mongoose.h"
+#include <iostream>
 
 // ------------------------------------------------------------------------------------------------
 using pyrslot   = PyrSlot;
@@ -350,7 +351,8 @@ class Client
     m_thread;
 
     mg_mgr
-    m_mgr;
+    m_ws_mgr,
+    m_http_mgr;
 
     std::string
     m_host;
@@ -370,7 +372,8 @@ public:
     Client() : m_connection(nullptr)
     // ------------------------------------------------------------------------------------------------
     {
-        mg_mgr_init(&m_mgr, this);
+        mg_mgr_init(&m_ws_mgr, this);
+        mg_mgr_init(&m_http_mgr, this);
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -386,7 +389,7 @@ public:
         ws_addr.append(":");
         ws_addr.append(std::to_string(port));
 
-        m_connection.connection = mg_connect_ws(&m_mgr, event_handler, ws_addr.c_str(), nullptr, nullptr);
+        m_connection.connection = mg_connect_ws(&m_ws_mgr, event_handler, ws_addr.c_str(), nullptr, nullptr);
         assert(m_connection.connection); //for now
 
         m_running = true;
@@ -398,7 +401,12 @@ public:
     request(std::string req)
     // ------------------------------------------------------------------------------------------------
     {
-        mg_connect_http(&m_mgr, event_handler, req.data(), nullptr, nullptr);
+        std::string addr(m_host);
+        addr.append(":");
+        addr.append(std::to_string(m_port));
+        addr.append(req);
+
+        auto mgc = mg_connect_http(&m_ws_mgr, event_handler, addr.data(), nullptr, nullptr);
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -406,7 +414,8 @@ public:
     // ------------------------------------------------------------------------------------------------
     {
         pthread_join(m_thread, nullptr);
-        mg_mgr_free(&m_mgr);
+        mg_mgr_free(&m_ws_mgr);
+        mg_mgr_free(&m_http_mgr);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -415,8 +424,10 @@ public:
     //-------------------------------------------------------------------------------------------------
     {
         auto client = static_cast<Client*>(udata);
-        while (client->m_running)
-            mg_mgr_poll(&client->m_mgr, 200);
+        while (client->m_running) {
+            mg_mgr_poll(&client->m_ws_mgr, 200);
+//            mg_mgr_poll(&client->m_http_mgr, 200);
+        }
 
         return nullptr;
     }
